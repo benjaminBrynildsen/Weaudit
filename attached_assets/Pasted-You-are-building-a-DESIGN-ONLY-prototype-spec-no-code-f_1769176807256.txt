@@ -1,0 +1,155 @@
+You are building a DESIGN-ONLY prototype spec (no code) for a SaaS web app called “AutoAudit” that audits credit card processing statements (like weAudit) and flags potential overcharges / mispricing.
+
+GOAL
+Create a clear product design that can be implemented later:
+- Upload statements (PDF/CSV)
+- Parse + normalize into a canonical schema
+- Classify fees + compute metrics
+- Run a rules/benchmark engine to create “Findings”
+- Present ranked flags with evidence + $ impact
+- Export report
+- Secure multi-tenant architecture
+
+CONSTRAINTS
+- Do NOT write code.
+- Produce structured output as a Product Requirements + UX Spec.
+- Assume statements vary widely by processor; accuracy must show confidence + evidence.
+
+OUTPUT FORMAT (use these exact headings)
+1) Product Summary (1 paragraph)
+2) Primary Users & Roles (RBAC)
+3) Core User Flows (step-by-step)
+4) Information Architecture (nav + page map)
+5) Screen-by-Screen UX (detailed)
+6) Data Model (canonical schema)
+7) Parsing & Normalization Design (pipeline + fallback)
+8) Rules Engine + Benchmarks (how flags are generated)
+9) Findings Catalog (initial set of flags)
+10) Report & Export Design
+11) Security & Compliance Design (practical controls)
+12) Observability & Audit Logs
+13) MVP vs V2 Roadmap
+14) Open Questions / Assumptions
+
+FEATURE REQUIREMENTS
+
+A) Onboarding & Workspace
+- Create Workspace (merchant tenant)
+- Invite team members
+- Roles: Merchant Admin, Analyst (read-only), Auditor (can tag/resolve findings)
+- MFA optional for MVP, required for Admin in V2
+- Tenant isolation is mandatory
+
+B) Statement Upload
+- Upload PDF and/or CSV
+- Capture statement metadata: processor, statement month, business name, estimated volume (if known)
+- Show upload progress and store original file as “source artifact”
+- Provide “Delete now” and default retention policy
+
+C) Parsing Pipeline (design)
+- Stage 1: Detect if PDF is text-based or scanned
+- Stage 2: Extract text/tables or OCR only relevant pages
+- Stage 3: Split into:
+  1) line items (fees/charges)
+  2) volume metrics (sales volume, refunds, txn count) if present
+- Stage 4: Normalize into canonical categories using:
+  - deterministic dictionary/regex rules
+  - processor-specific mapping packs
+  - “unknown classification” bucket with low confidence
+- Every extracted line item stores: source_page, raw_text, extracted_amount, confidence
+
+D) Dashboard & Findings
+- After processing, show:
+  - Executive Summary: effective rate, total fees, estimated savings range
+  - Findings list ranked by estimated annual impact
+- Each Finding must include:
+  - Title, severity, confidence
+  - Dollar impact (monthly and annualized)
+  - Evidence (line items, raw text, page references)
+  - “Why it matters”
+  - Recommended action
+  - Status (Open / Acknowledged / Resolved / False Positive)
+  - Assignee and notes
+
+E) Findings Views
+- Findings list filters:
+  - severity, confidence, category, processor, statement period, status
+- Finding detail drill-down:
+  - evidence table with raw lines + mapped category
+  - “Explain this fee” panel (simple definition + why flagged)
+  - comparison vs last statement (if multiple months exist)
+
+F) Categories View (audit-style)
+Tabs:
+- Pricing Model
+- Processor Markup
+- “Junk / Hidden Fees”
+- PCI & Compliance
+- Gateway & Ancillary
+- Contract / Risk indicators
+Each tab shows related findings + supporting line items.
+
+G) Export
+- Export PDF report (executive summary + findings + appendix)
+- Export CSV of normalized line items + findings table
+- Share link (time-limited) for external review
+
+H) Benchmarks (design-only)
+- Provide a “Benchmarking” module:
+  - industry/vertical selection (retail, cafe, restaurant, ecommerce, services)
+  - volume tier selection
+  - compare effective rate and markup range to benchmark bands
+- Benchmarks are used to support findings but not presented as guaranteed savings.
+
+SECURITY & COMPLIANCE REQUIREMENTS (design)
+- Encrypt in transit and at rest
+- Separate upload storage from processed DB
+- Short-lived signed URLs for files
+- Least privilege access
+- Audit logs for: file upload, file access, export, user login, role changes
+- Data retention defaults (e.g., 90 days) + immediate deletion option
+- Avoid storing unnecessary PII; redaction step before any third-party OCR/LLM if used
+- SOC2-ready posture (logging, change control, access control) as future goal
+
+INITIAL FINDINGS CATALOG (must include these with detection logic)
+1. PCI non-compliance / PCI program fees detected
+2. Monthly minimum fee / penalty detected
+3. Duplicate monthly service fees detected
+4. “Non-qualified / downgrade” style pricing detected (tiered pricing indicators)
+5. Excessive batch fees (frequency anomaly)
+6. Gateway fees that appear duplicated or stacked
+7. Effective rate spike vs prior month (if history exists)
+8. Processor markup unusually high vs benchmark band
+9. Statement contains “regulatory”, “NABU”, “FANF” items: classify and explain
+10. Unknown fee descriptions above a dollar threshold (needs human review)
+
+SCREEN LIST (must produce detailed UX for each)
+- Login
+- Workspace select/create
+- Team & roles
+- Upload statement
+- Upload history
+- Processing status
+- Dashboard (executive summary)
+- Findings list
+- Finding detail
+- Categories view
+- Benchmarks view
+- Exports & reports
+- Settings (retention, MFA, integrations placeholder)
+
+DESIGN DELIVERABLES
+- Provide page-by-page layout descriptions (sections, tables, filters, buttons)
+- Provide component inventory (cards, tables, chips, modals)
+- Provide empty-state and error-state behaviors
+- Provide copy text examples for key UI elements (finding titles, tooltips, warnings)
+
+MVP ROADMAP (must be explicit)
+MVP: single-tenant (one merchant), PDF upload, extraction to line items, basic findings, export
+V2: multi-tenant, processor mapping packs, benchmark bands, multi-month comparisons, SSO
+V3: continuous monitoring + integrations (processor APIs, accounting exports)
+
+OPEN QUESTIONS (end with this)
+Ask 10 high-leverage questions that we should answer in the weAudit meeting to make the design implementable (e.g., which processors, which statement formats, how they currently classify, what “10-point audit” exactly contains, what thresholds they use, retention expectations).
+
+Now produce the full design spec following the output format.
