@@ -51,11 +51,8 @@
 }
 
 :root {
-  /* Sleek Fintech Theme */
-  /* Deep Navy Blue for authority, Emerald Teal for savings/money */
-  
-  --background: 210 40% 98%; /* Very light cool gray */
-  --foreground: 222 47% 11%; /* Deep navy text */
+  --background: 210 40% 98%;
+  --foreground: 222 47% 11%;
 
   --card: 0 0% 100%;
   --card-foreground: 222 47% 11%;
@@ -63,16 +60,16 @@
   --popover: 0 0% 100%;
   --popover-foreground: 222 47% 11%;
 
-  --primary: 222 47% 11%; /* Brand Navy */
+  --primary: 222 47% 11%;
   --primary-foreground: 210 40% 98%;
 
-  --secondary: 210 20% 94%; /* Light gray for secondary elements */
+  --secondary: 210 20% 94%;
   --secondary-foreground: 222 47% 11%;
 
   --muted: 210 20% 96%;
   --muted-foreground: 215 16% 47%;
 
-  --accent: 160 84% 39%; /* Success/Money Teal */
+  --accent: 160 84% 39%;
   --accent-foreground: 0 0% 100%;
 
   --destructive: 0 84% 60%;
@@ -140,7 +137,22 @@
   body {
     @apply font-sans antialiased bg-background text-foreground;
   }
-  h1, h2, h3, h4, h5, h6 {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     @apply font-heading tracking-tight;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
   }
 }

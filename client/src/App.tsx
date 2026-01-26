@@ -8,6 +8,8 @@ import Landing from "@/pages/Landing";
 import Dashboard from "@/pages/Dashboard";
 import Upload from "@/pages/Upload";
 import Findings from "@/pages/Findings";
+import Reports from "@/pages/Reports";
+import Settings from "@/pages/Settings";
 
 function Router() {
   return (
@@ -16,8 +18,8 @@ function Router() {
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/upload" component={Upload} />
       <Route path="/findings" component={Findings} />
-      <Route path="/reports" component={Dashboard} /> {/* Placeholder */}
-      <Route path="/settings" component={Dashboard} /> {/* Placeholder */}
+      <Route path="/reports" component={Reports} />
+      <Route path="/settings" component={Settings} />
       <Route component={NotFound} />
     </Switch>
   );

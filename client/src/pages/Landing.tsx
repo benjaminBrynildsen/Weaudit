@@ -1,4 +1,4 @@
-import { Link, useLocation } from "wouter";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,7 +13,6 @@ export default function Landing() {
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    // Simulate login delay
     setTimeout(() => {
       setLocation("/dashboard");
     }, 1000);
@@ -21,12 +20,10 @@ export default function Landing() {
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row bg-background">
-      {/* Left Side - Hero/Brand */}
       <div className="lg:w-1/2 bg-sidebar p-8 lg:p-12 flex flex-col justify-between relative overflow-hidden text-sidebar-foreground">
-        {/* Background Texture/Pattern */}
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-sidebar-primary/20 via-transparent to-transparent opacity-50"></div>
-        <div className="absolute bottom-0 left-0 right-0 h-64 bg-gradient-to-t from-sidebar to-transparent"></div>
-        
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-sidebar-primary/20 via-transparent to-transparent opacity-50" />
+        <div className="absolute bottom-0 left-0 right-0 h-64 bg-gradient-to-t from-sidebar to-transparent" />
+
         <div className="relative z-10">
           <div className="flex items-center gap-2 font-heading font-bold text-2xl tracking-tight mb-20">
             <div className="w-10 h-10 rounded-xl bg-sidebar-primary flex items-center justify-center text-sidebar-primary-foreground">
@@ -56,7 +53,6 @@ export default function Landing() {
         </div>
       </div>
 
-      {/* Right Side - Login Form */}
       <div className="lg:w-1/2 flex items-center justify-center p-8">
         <div className="w-full max-w-md space-y-8">
           <div className="text-center lg:text-left">
@@ -67,19 +63,28 @@ export default function Landing() {
           <form onSubmit={handleLogin} className="space-y-6">
             <div className="space-y-2">
               <Label htmlFor="email">Email address</Label>
-              <Input id="email" type="email" placeholder="name@company.com" required className="h-11" />
+              <Input
+                data-testid="input-email"
+                id="email"
+                type="email"
+                placeholder="name@company.com"
+                required
+                className="h-11"
+              />
             </div>
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="password">Password</Label>
-                <a href="#" className="text-sm font-medium text-primary hover:underline">Forgot password?</a>
+                <a data-testid="link-forgot-password" href="#" className="text-sm font-medium text-primary hover:underline">
+                  Forgot password?
+                </a>
               </div>
-              <Input id="password" type="password" required className="h-11" />
+              <Input data-testid="input-password" id="password" type="password" required className="h-11" />
             </div>
 
             <div className="flex items-center space-x-2">
-              <Checkbox id="remember" />
+              <Checkbox data-testid="checkbox-remember" id="remember" />
               <label
                 htmlFor="remember"
                 className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
@@ -88,7 +93,7 @@ export default function Landing() {
               </label>
             </div>
 
-            <Button type="submit" className="w-full h-11 text-base group" disabled={loading}>
+            <Button data-testid="button-signin" type="submit" className="w-full h-11 text-base group" disabled={loading}>
               {loading ? "Signing in..." : "Sign in"}
               {!loading && <ArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-1 transition-transform" />}
             </Button>
@@ -97,9 +102,12 @@ export default function Landing() {
           <div className="text-center text-sm text-muted-foreground pt-4">
             <div className="flex items-center justify-center gap-2 mb-4">
               <Lock className="w-4 h-4" />
-              <span>Bank-grade security & encryption</span>
+              <span data-testid="text-security-note">Bank-grade security & encryption</span>
             </div>
-            Don't have an account? <a href="#" className="font-medium text-primary hover:underline">Request access</a>
+            <span>Don't have an account? </span>
+            <a data-testid="link-request-access" href="#" className="font-medium text-primary hover:underline">
+              Request access
+            </a>
           </div>
         </div>
       </div>
