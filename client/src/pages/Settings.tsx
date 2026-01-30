@@ -19,6 +19,34 @@ export default function Settings() {
           <p data-testid="text-settings-subtitle" className="text-muted-foreground mt-1">
             Retention, MFA, and integration placeholders.
           </p>
+
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-700 flex items-center justify-center shrink-0">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <p data-testid="text-settings-rulepacks-title" className="text-sm font-semibold text-amber-800">
+                  Rule packs live under Review
+                </p>
+                <p data-testid="text-settings-rulepacks-body" className="text-sm text-amber-800/80 mt-1">
+                  Go to the “Review” item in the left sidebar to manage Processor ISOs and the Downgrade list.
+                </p>
+                <div className="mt-3">
+                  <Button
+                    data-testid="button-open-rulepacks"
+                    size="sm"
+                    className="h-8 bg-amber-700 hover:bg-amber-800 text-white"
+                    onClick={() => {
+                      window.location.href = "/review";
+                    }}
+                  >
+                    Open Rule Packs
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <Card className="p-5">
