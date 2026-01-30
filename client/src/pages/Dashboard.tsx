@@ -70,7 +70,18 @@ type DowngradeRow = {
   ifCorrected?: string;
   revenueLost?: string;
   ref: EvidenceRef;
-  status?: "Needs Review";
+  flagged?: boolean;
+  flagReason?: string;
+};
+
+type ReviewItem = {
+  id: string;
+  kind: "downgrade";
+  raw: string;
+  page: number;
+  note: string;
+  createdAt: number;
+  processorFamily: ProcessorFamily;
 };
 
 const processorFamilies: { value: ProcessorFamily; label: string; hint: string }[] = [
@@ -304,10 +315,10 @@ export default function Dashboard() {
         raw: "VISA ASSESSMENT FEE CR .001400 TIMES $32,324.71",
         revenueLost: "—",
         ref: { page: 3, box: { x: 8, y: 56, w: 78, h: 9 } },
-        status: "Needs Review",
+        flagged: true,
+        flagReason: "Keyword-triggered: not in rule pack",
       };
       setDowngrades([d1]);
-      setStatus("Needs Review");
     });
 
     schedule(2100, () => {
@@ -322,7 +333,7 @@ export default function Dashboard() {
     schedule(2600, () => {
       setProgress(100);
       setPhase("complete");
-      setStatus((s) => (s === "Needs Review" ? "Needs Review" : "Complete"));
+      setStatus("Complete");
     });
   }
 
@@ -566,13 +577,13 @@ export default function Dashboard() {
                             <p data-testid={`text-strip-downgrade-page-${r.id}`} className="text-[11px] text-muted-foreground">
                               p.{r.ref.page}
                             </p>
-                            {r.status === "Needs Review" && (
+                            {r.flagged && (
                               <Badge
-                                data-testid={`badge-strip-downgrade-review-${r.id}`}
+                                data-testid={`badge-strip-downgrade-flag-${r.id}`}
                                 variant="outline"
                                 className="text-[10px] bg-amber-500/10 text-amber-700 border-amber-500/20"
                               >
-                                Needs Review
+                                Flag
                               </Badge>
                             )}
                           </div>
@@ -830,47 +841,42 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  {status === "Needs Review" && (
+                  {phase === "complete" && downgrades.some((d) => d.flagged) && (
                     <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
                       <div className="flex items-start gap-2">
                         <AlertTriangle className="w-4 h-4 text-amber-700 mt-0.5" />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
-                              <p data-testid="text-needs-review-title" className="text-xs font-semibold text-amber-800">
-                                Needs review
+                              <p data-testid="text-review-before-saving-title" className="text-xs font-semibold text-amber-800">
+                                Review before saving
                               </p>
-                              <p data-testid="text-needs-review-body" className="text-[11px] text-amber-800/80 mt-1">
-                                Keyword-triggered lines that aren’t in the library yet still appear now. Approve them to complete the scan.
+                              <p data-testid="text-review-before-saving-body" className="text-[11px] text-amber-800/80 mt-1">
+                                We found {downgrades.filter((d) => d.flagged).length} potential new downgrade line(s). Finish the scan, then review flagged rows before saving.
                               </p>
                             </div>
 
                             <div className="flex items-center gap-2 shrink-0">
                               <Button
-                                data-testid="button-approve-review-items"
+                                data-testid="button-open-review"
                                 size="sm"
-                                className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white"
+                                className="h-8 bg-amber-700 hover:bg-amber-800 text-white"
                                 onClick={() => {
-                                  setDowngrades((prev) => prev.map((r) => (r.status === "Needs Review" ? { ...r, status: undefined } : r)));
-                                  setStatus("Complete");
-                                  setPhase("complete");
-                                  setProgress(100);
+                                  window.location.href = "/review";
                                 }}
                               >
-                                Approve & Finish
+                                Open review
                               </Button>
                               <Button
-                                data-testid="button-dismiss-review"
+                                data-testid="button-mark-reviewed-later"
                                 size="sm"
                                 variant="outline"
                                 className="h-8"
                                 onClick={() => {
-                                  setStatus("Complete");
-                                  setPhase("complete");
-                                  setProgress(100);
+                                  window.scrollTo({ top: 0, behavior: "smooth" });
                                 }}
                               >
-                                Mark done
+                                Later
                               </Button>
                             </div>
                           </div>
