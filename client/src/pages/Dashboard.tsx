@@ -185,7 +185,9 @@ export default function Dashboard() {
   }, [downgrades]);
 
   const derived = useMemo(() => {
-    const totalVol = parseMoney(fields.total_submitted_volume.override?.trim() ? fields.total_submitted_volume.override : fields.total_submitted_volume.value);
+    const totalVol = parseMoney(
+      fields.total_submitted_volume.override?.trim() ? fields.total_submitted_volume.override : fields.total_submitted_volume.value,
+    );
     const amexVol = parseMoney(fields.amex_volume.override?.trim() ? fields.amex_volume.override : fields.amex_volume.value);
     const totalFees = parseMoney(fields.total_fees.override?.trim() ? fields.total_fees.override : fields.total_fees.value);
     const amexFees = parseMoney(fields.amex_fees.override?.trim() ? fields.amex_fees.override : fields.amex_fees.value);
@@ -212,7 +214,9 @@ export default function Dashboard() {
         },
         monthly_fees_non_amex: {
           ...prev.monthly_fees_non_amex,
-          value: fees ? `$${fees.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : prev.monthly_fees_non_amex.value,
+          value: fees
+            ? `$${fees.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            : prev.monthly_fees_non_amex.value,
           confidence: prev.monthly_fees_non_amex.confidence ?? 0.68,
           page: prev.monthly_fees_non_amex.page ?? 3,
         },
@@ -331,7 +335,6 @@ export default function Dashboard() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        {/* Top control card */}
         <div className="rounded-2xl border border-border bg-card/80 backdrop-blur supports-[backdrop-filter]:bg-card/60 shadow-sm">
           <div className="p-4 sm:p-5">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
@@ -383,14 +386,7 @@ export default function Dashboard() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <Button
-                    data-testid="button-upload-pdf"
-                    variant="outline"
-                    className="h-10"
-                    onClick={() => {
-                      startScan();
-                    }}
-                  >
+                  <Button data-testid="button-upload-pdf" variant="outline" className="h-10" onClick={startScan}>
                     <UploadCloud className="w-4 h-4 mr-2" />
                     Upload PDF
                   </Button>
@@ -448,7 +444,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Full-width thin live results strip */}
         <Card className="p-4 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -531,7 +526,11 @@ export default function Dashboard() {
             <div className="rounded-lg border border-border overflow-hidden">
               <div className="flex items-center justify-between bg-secondary/20 px-3 py-2">
                 <div className="flex items-center gap-2 min-w-0">
-                  <Badge data-testid="badge-live-strip-downgrade" variant="outline" className="text-[11px] bg-yellow-400/15 text-yellow-700 border-yellow-500/20">
+                  <Badge
+                    data-testid="badge-live-strip-downgrade"
+                    variant="outline"
+                    className="text-[11px] bg-yellow-400/15 text-yellow-700 border-yellow-500/20"
+                  >
                     Downgrades
                   </Badge>
                   <p data-testid="text-live-strip-downgrade-title" className="text-xs font-semibold truncate">
@@ -595,9 +594,8 @@ export default function Dashboard() {
           </div>
         </Card>
 
-        {/* Main workspace below */}
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-          <div className="xl:col-span-3 space-y-6">
+          <div className="xl:col-span-4 space-y-6">
             <Card className="p-5 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -802,7 +800,11 @@ export default function Dashboard() {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <p className="text-xs font-semibold text-muted-foreground">Downgrade summary</p>
-                    <Badge data-testid="badge-downgrades" variant="outline" className="text-[11px] bg-yellow-400/15 text-yellow-700 border-yellow-500/20">
+                    <Badge
+                      data-testid="badge-downgrades"
+                      variant="outline"
+                      className="text-[11px] bg-yellow-400/15 text-yellow-700 border-yellow-500/20"
+                    >
                       Phase D
                     </Badge>
                   </div>
@@ -881,7 +883,7 @@ export default function Dashboard() {
             </Card>
           </div>
 
-          <div className="xl:col-span-6 space-y-6">
+          <div className="xl:col-span-8 space-y-6">
             <Card className="overflow-hidden shadow-sm">
               <div className="p-4 sm:p-5 border-b border-border bg-secondary/10">
                 <div className="flex items-center justify-between gap-3">
@@ -936,7 +938,13 @@ export default function Dashboard() {
 
                     <div className="absolute inset-0 pt-10 p-4">
                       <div className="h-full rounded-lg bg-background/70 border border-border relative overflow-hidden">
-                        <div className="absolute inset-0 opacity-[0.18]" style={{ backgroundImage: "linear-gradient(to bottom, rgba(0,0,0,0.04), rgba(0,0,0,0)), radial-gradient(circle at 20% 25%, rgba(0,0,0,0.06), transparent 60%)" }} />
+                        <div
+                          className="absolute inset-0 opacity-[0.18]"
+                          style={{
+                            backgroundImage:
+                              "linear-gradient(to bottom, rgba(0,0,0,0.04), rgba(0,0,0,0)), radial-gradient(circle at 20% 25%, rgba(0,0,0,0.06), transparent 60%)",
+                          }}
+                        />
 
                         {nonPci
                           .filter((r) => r.ref.page === selectedPage)
@@ -1023,7 +1031,6 @@ export default function Dashboard() {
               </div>
             </Card>
           </div>
-
         </div>
 
         <div className="rounded-xl border border-border bg-secondary/10 p-4">
