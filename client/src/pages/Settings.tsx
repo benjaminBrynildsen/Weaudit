@@ -30,7 +30,7 @@ export default function Settings() {
                   Rule packs live under Review
                 </p>
                 <p data-testid="text-settings-rulepacks-body" className="text-sm text-amber-800/80 mt-1">
-                  Go to the “Review” item in the left sidebar to manage Processor ISOs and the Downgrade list.
+                  Go to the “Admin Database” item in the left sidebar to manage Processor ISOs and the Downgrade list.
                 </p>
                 <div className="mt-3">
                   <Button

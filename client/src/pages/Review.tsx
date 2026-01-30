@@ -319,7 +319,7 @@ export default function Review() {
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
           <div className="min-w-0">
             <h1 data-testid="text-review-title" className="text-3xl font-bold font-heading tracking-tight">
-              Settings · Rule Packs
+              Admin Database
             </h1>
             <p data-testid="text-review-subtitle" className="text-muted-foreground mt-1">
               Manage processor ISOs and downgrade detection rules used by the audit engine.

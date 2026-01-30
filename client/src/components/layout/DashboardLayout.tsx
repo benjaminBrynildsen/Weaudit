@@ -36,7 +36,7 @@ function Sidebar({ collapsed }: SidebarProps) {
     { icon: AlertTriangle, label: "Findings", href: "/findings" },
     { icon: BarChart3, label: "Reports", href: "/reports" },
     { icon: Settings, label: "Settings", href: "/settings" },
-    { icon: AlertTriangle, label: "Review", href: "/review" },
+    { icon: AlertTriangle, label: "Admin Database", href: "/review" },
   ];
 
   return (
