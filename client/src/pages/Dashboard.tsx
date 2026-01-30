@@ -648,9 +648,6 @@ export default function Dashboard() {
                             </p>
                           </div>
                           <div className="shrink-0 text-right">
-                            <p data-testid={`text-field-confidence-${k}`} className="text-[11px] text-muted-foreground">
-                              {fmtPct(f.confidence)}
-                            </p>
                             <button
                               data-testid={`button-field-jump-${k}`}
                               className="text-[11px] text-primary hover:underline"
@@ -704,9 +701,6 @@ export default function Dashboard() {
                             {f.override?.trim() ? f.override : f.value ?? "—"}
                           </p>
                           <div className="flex items-center justify-between mt-2">
-                            <p data-testid={`text-field-confidence-${k}`} className="text-[11px] text-muted-foreground">
-                              {fmtPct(f.confidence)}
-                            </p>
                             <button
                               data-testid={`button-field-jump-${k}`}
                               className="text-[11px] text-primary hover:underline"
