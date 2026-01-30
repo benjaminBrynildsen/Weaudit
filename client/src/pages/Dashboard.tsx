@@ -214,6 +214,90 @@ export default function Dashboard() {
     setPhase("classify");
   }
 
+  function usePatriotSample() {
+    resetScan();
+    setStatus("Scanning");
+    setPhase("classify");
+
+    setFields((prev) => ({
+      ...prev,
+      processor_detected: { ...prev.processor_detected, value: "commercecontrol_statement", confidence: 0.93, page: 1 },
+      company_dba: { ...prev.company_dba, value: "PATRIOT FLOORING SUPPLIE", confidence: 0.88, page: 1 },
+      mid: { ...prev.mid, value: "737191920880", confidence: 0.96, page: 1 },
+      statement_period: { ...prev.statement_period, value: "12/01/25 – 12/31/25", confidence: 0.95, page: 1 },
+      total_submitted_volume: { ...prev.total_submitted_volume, value: "$289,467.20", confidence: 0.92, page: 1 },
+      amex_volume: { ...prev.amex_volume, value: "$224,793.00", confidence: 0.9, page: 2 },
+      total_fees: { ...prev.total_fees, value: "$2,096.96", confidence: 0.9, page: 1 },
+    }));
+
+    const scheduleTimers: number[] = [];
+    const schedule = (ms: number, fn: () => void) => {
+      const t = window.setTimeout(fn, ms);
+      scheduleTimers.push(t);
+      timers.current.push(t);
+    };
+
+    schedule(450, () => {
+      setProgress(18);
+      setPhase("extract");
+    });
+
+    schedule(900, () => {
+      setProgress(40);
+      setPhase("non_pci");
+    });
+
+    schedule(1100, () => {
+      const r1: NonPciRow = {
+        id: uid("npc"),
+        raw: "NON PCI COMPLIANCE FEE",
+        amount: "$19.95",
+        ref: { page: 4, box: { x: 10, y: 28, w: 54, h: 8 } },
+        status: "Refund Candidate",
+      };
+      setNonPci((prev) => [...prev, r1]);
+      setSelectedEvidenceId(r1.id);
+      setSelectedPage(4);
+    });
+
+    schedule(1350, () => {
+      setProgress(62);
+      setPhase("downgrade");
+    });
+
+    schedule(1650, () => {
+      const d2: DowngradeRow = {
+        id: uid("dgr"),
+        ofTrans: "—",
+        volume: "$32,324.71",
+        raw: "VISA ASSESSMENT FEE CR .001400 TIMES $32,324.71",
+        downgradeRate: "—",
+        ifCorrected: "—",
+        revenueLost: "—",
+        ref: { page: 3, box: { x: 8, y: 56, w: 78, h: 9 } },
+        status: "Needs Review",
+      };
+      setDowngrades((prev) => [...prev, d2]);
+      setStatus("Needs Review");
+    });
+
+    schedule(2050, () => {
+      setProgress(86);
+      setPhase("compute");
+
+      setFields((prev) => ({
+        ...prev,
+        amex_fees: { ...prev.amex_fees, value: "—", confidence: 0.35, page: 3 },
+      }));
+    });
+
+    schedule(2550, () => {
+      setProgress(100);
+      setPhase("complete");
+      setStatus((s) => (s === "Needs Review" ? "Needs Review" : "Complete"));
+    });
+  }
+
   const timers = useRef<number[]>([]);
   useEffect(() => {
     return () => {
