@@ -32,8 +32,7 @@ function Sidebar({ collapsed }: SidebarProps) {
   const [location] = useLocation();
 
   const navItems = [
-    { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
-    { icon: FileText, label: "Upload Statements", href: "/upload" },
+    { icon: LayoutDashboard, label: "Statements", href: "/dashboard" },
     { icon: AlertTriangle, label: "Findings", href: "/findings" },
     { icon: BarChart3, label: "Reports", href: "/reports" },
     { icon: Settings, label: "Settings", href: "/settings" },
@@ -135,7 +134,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <Input
                 data-testid="input-global-search"
                 type="search"
-                placeholder="Search findings, merchants, or reports..."
+                placeholder="Search statements, findings, or clients..."
                 className="pl-9 bg-secondary/50 border-transparent focus:bg-background focus:border-input transition-all"
               />
             </div>
