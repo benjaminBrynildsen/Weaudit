@@ -1,16 +1,11 @@
+import { useEffect, useMemo, useRef, useState } from "react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import {
   AlertTriangle,
@@ -28,17 +23,27 @@ import {
   Sparkles,
   UploadCloud,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+
+type ProcessorFamily = "adymo" | "worldpay" | "fispay" | "merchantlink";
 
 type ScanPhase = "idle" | "classify" | "extract" | "non_pci" | "downgrade" | "compute" | "complete";
 
 type ScanStatus = "Idle" | "Scanning" | "Needs Review" | "Complete";
 
-type ProcessorFamily = "fiserv_cardconnect_type1" | "fiserv_fiserv_type2" | "versapay_core";
+type FieldKey =
+  | "processor_detected"
+  | "company_dba"
+  | "mid"
+  | "statement_period"
+  | "total_submitted_volume"
+  | "amex_volume"
+  | "monthly_volume_non_amex"
+  | "total_fees"
+  | "amex_fees"
+  | "monthly_fees_non_amex"
+  | "effective_rate";
 
-type EvidenceRef = { page: number; box: { x: number; y: number; w: number; h: number } };
-
-type LiveField = {
+type FieldValue = {
   label: string;
   value?: string;
   confidence?: number;
@@ -46,12 +51,14 @@ type LiveField = {
   override?: string;
 };
 
+type EvidenceRef = { page: number; box: { x: number; y: number; w: number; h: number } };
+
 type NonPciRow = {
   id: string;
   raw: string;
   amount: string;
   ref: EvidenceRef;
-  status: "Refund Candidate";
+  status?: "Refund Candidate";
 };
 
 type DowngradeRow = {
@@ -62,54 +69,51 @@ type DowngradeRow = {
   downgradeRate?: string;
   ifCorrected?: string;
   revenueLost?: string;
-  feeActual?: string;
   ref: EvidenceRef;
   status?: "Needs Review";
 };
 
-function fmtPct(conf?: number) {
-  if (conf === undefined) return "—";
-  return `${Math.round(conf * 100)}%`;
-}
-
-function uid(prefix = "id") {
-  return `${prefix}_${Math.random().toString(16).slice(2)}`;
-}
-
-const processorFamilies: Array<{ value: ProcessorFamily; label: string; hint: string }> = [
-  {
-    value: "fiserv_cardconnect_type1",
-    label: "Fiserv • CardConnect • Type 1",
-    hint: "Fees section only, AMEX carve-out",
-  },
-  {
-    value: "fiserv_fiserv_type2",
-    label: "Fiserv • Fiserv • Type 2",
-    hint: "Alternate totals layout",
-  },
-  {
-    value: "versapay_core",
-    label: "VersaPay • Core",
-    hint: "Interchange lines grouped by program",
-  },
+const processorFamilies: { value: ProcessorFamily; label: string; hint: string }[] = [
+  { value: "adymo", label: "Adymo family", hint: "Common ECP formats, assessment + pass-through" },
+  { value: "worldpay", label: "Worldpay family", hint: "Tier + interchange descriptors" },
+  { value: "fispay", label: "FIS Pay family", hint: "DDA funding + fee sections" },
+  { value: "merchantlink", label: "MerchantLink family", hint: "Statement batching + addenda" },
 ];
 
-const levelOptions = ["II", "III"] as const;
+const levelOptions = ["I", "II", "III"] as const;
+
+function fmtPct(n?: number) {
+  if (typeof n !== "number") return "—";
+  return `${Math.round(n * 100)}%`;
+}
+
+function parseMoney(input?: string) {
+  if (!input) return 0;
+  const s = input.replace(/[^0-9.-]/g, "");
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function uid(prefix: string) {
+  return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
+}
 
 export default function Dashboard() {
-  const [processorFamily, setProcessorFamily] = useState<ProcessorFamily>("fiserv_cardconnect_type1");
+  const [processorFamily, setProcessorFamily] = useState<ProcessorFamily>("adymo");
   const [level, setLevel] = useState<(typeof levelOptions)[number]>("II");
 
-  const [status, setStatus] = useState<ScanStatus>("Idle");
   const [phase, setPhase] = useState<ScanPhase>("idle");
-  const [progress, setProgress] = useState(0);
+  const [status, setStatus] = useState<ScanStatus>("Idle");
+  const [progress, setProgress] = useState<number>(0);
 
-  const [selectedPage, setSelectedPage] = useState(1);
+  const [excludeAmex, setExcludeAmex] = useState<boolean>(true);
+
+  const [selectedPage, setSelectedPage] = useState<number>(1);
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
 
-  const [fields, setFields] = useState<Record<string, LiveField>>({
+  const baseFields: Record<FieldKey, FieldValue> = {
     processor_detected: { label: "Processor (detected)" },
-    company_dba: { label: "Company DBA" },
+    company_dba: { label: "DBA" },
     mid: { label: "MID / Merchant #" },
     statement_period: { label: "Statement Period" },
     total_submitted_volume: { label: "Total Submitted Volume" },
@@ -118,136 +122,162 @@ export default function Dashboard() {
     total_fees: { label: "Total Fees" },
     amex_fees: { label: "AMEX Fees" },
     monthly_fees_non_amex: { label: "Monthly Fees (Non-AMEX)" },
-    effective_rate: { label: "Effective Rate (Non-AMEX)" },
-  });
+    effective_rate: { label: "Effective Rate (OER)" },
+  };
 
-  const [excludeAmex, setExcludeAmex] = useState(true);
+  const [fields, setFields] = useState<Record<FieldKey, FieldValue>>(() => ({
+    ...baseFields,
+    processor_detected: { ...baseFields.processor_detected, value: "—", confidence: 0.0, page: 1 },
+    company_dba: { ...baseFields.company_dba, value: "—", confidence: 0.0, page: 1 },
+    mid: { ...baseFields.mid, value: "—", confidence: 0.0, page: 1 },
+    statement_period: { ...baseFields.statement_period, value: "—", confidence: 0.0, page: 1 },
+    total_submitted_volume: { ...baseFields.total_submitted_volume, value: "—", confidence: 0.0, page: 1 },
+    amex_volume: { ...baseFields.amex_volume, value: "—", confidence: 0.0, page: 2 },
+    monthly_volume_non_amex: { ...baseFields.monthly_volume_non_amex, value: "—", confidence: 0.0, page: 2 },
+    total_fees: { ...baseFields.total_fees, value: "—", confidence: 0.0, page: 3 },
+    amex_fees: { ...baseFields.amex_fees, value: "—", confidence: 0.0, page: 3 },
+    monthly_fees_non_amex: { ...baseFields.monthly_fees_non_amex, value: "—", confidence: 0.0, page: 3 },
+    effective_rate: { ...baseFields.effective_rate, value: "—", confidence: 0.0, page: 2 },
+  }));
 
   const [nonPci, setNonPci] = useState<NonPciRow[]>([]);
   const [downgrades, setDowngrades] = useState<DowngradeRow[]>([]);
+
+  const timers = useRef<number[]>([]);
 
   const isScanning = status === "Scanning";
 
   const phaseLabel = useMemo(() => {
     switch (phase) {
+      case "idle":
+        return "Idle";
       case "classify":
-        return "Phase A • Classify statement";
+        return "Classify";
       case "extract":
-        return "Phase B • Extract identity + totals";
+        return "Extract";
       case "non_pci":
-        return "Phase C • Non-PCI detection";
+        return "Non-PCI";
       case "downgrade":
-        return "Phase D • Downgrade detection";
+        return "Downgrade";
       case "compute":
-        return "Phase E • Compute rollups";
+        return "Compute";
       case "complete":
         return "Complete";
       default:
-        return "Ready";
+        return phase;
     }
   }, [phase]);
 
   const statusBadge = useMemo(() => {
-    const base = "border";
-    if (status === "Complete") return `${base} bg-emerald-500/10 text-emerald-600 border-emerald-500/20`;
-    if (status === "Needs Review") return `${base} bg-amber-500/10 text-amber-700 border-amber-500/20`;
-    if (status === "Scanning") return `${base} bg-sky-500/10 text-sky-600 border-sky-500/20`;
-    return `${base} bg-secondary/30 text-muted-foreground border-border`;
+    if (status === "Complete") return "bg-emerald-500/10 text-emerald-600 border-emerald-500/20";
+    if (status === "Needs Review") return "bg-amber-500/10 text-amber-700 border-amber-500/20";
+    if (status === "Scanning") return "bg-sky-500/10 text-sky-600 border-sky-500/20";
+    return "text-muted-foreground";
   }, [status]);
 
-  const nonPciTotal = useMemo(() => {
-    const n = nonPci
-      .map((r) => Number(String(r.amount).replace(/[^0-9.-]/g, "")))
-      .filter((v) => !Number.isNaN(v))
-      .reduce((a, b) => a + b, 0);
-    return n;
-  }, [nonPci]);
+  const nonPciTotal = useMemo(() => nonPci.reduce((acc, r) => acc + parseMoney(r.amount), 0), [nonPci]);
 
   const downgradeRollup = useMemo(() => {
-    const vol = downgrades
-      .map((r) => Number(String(r.volume).replace(/[^0-9.-]/g, "")))
-      .filter((v) => !Number.isNaN(v))
-      .reduce((a, b) => a + b, 0);
-
-    const lost = downgrades
-      .map((r) => Number(String(r.revenueLost ?? "").replace(/[^0-9.-]/g, "")))
-      .filter((v) => !Number.isNaN(v))
-      .reduce((a, b) => a + b, 0);
-
-    return { rows: downgrades.length, volume: vol, revenueLost: lost };
+    const rows = downgrades.length;
+    const volume = downgrades.reduce((acc, r) => acc + parseMoney(r.volume), 0);
+    const revenueLost = downgrades.reduce((acc, r) => acc + parseMoney(r.revenueLost), 0);
+    return { rows, volume, revenueLost };
   }, [downgrades]);
 
-  function resetScan() {
-    setStatus("Idle");
-    setPhase("idle");
-    setProgress(0);
-    setSelectedEvidenceId(null);
-    setSelectedPage(1);
-    setExcludeAmex(true);
+  const derived = useMemo(() => {
+    const totalVol = parseMoney(fields.total_submitted_volume.override?.trim() ? fields.total_submitted_volume.override : fields.total_submitted_volume.value);
+    const amexVol = parseMoney(fields.amex_volume.override?.trim() ? fields.amex_volume.override : fields.amex_volume.value);
+    const totalFees = parseMoney(fields.total_fees.override?.trim() ? fields.total_fees.override : fields.total_fees.value);
+    const amexFees = parseMoney(fields.amex_fees.override?.trim() ? fields.amex_fees.override : fields.amex_fees.value);
 
-    setFields({
-      processor_detected: { label: "Processor (detected)" },
-      company_dba: { label: "Company DBA" },
-      mid: { label: "MID / Merchant #" },
-      statement_period: { label: "Statement Period" },
-      total_submitted_volume: { label: "Total Submitted Volume" },
-      amex_volume: { label: "AMEX Volume" },
-      monthly_volume_non_amex: { label: "Monthly Volume (Non-AMEX)" },
-      total_fees: { label: "Total Fees" },
-      amex_fees: { label: "AMEX Fees" },
-      monthly_fees_non_amex: { label: "Monthly Fees (Non-AMEX)" },
-      effective_rate: { label: "Effective Rate (Non-AMEX)" },
+    const monthlyVol = excludeAmex ? Math.max(0, totalVol - amexVol) : totalVol;
+    const monthlyFees = excludeAmex ? Math.max(0, totalFees - amexFees) : totalFees;
+    const oer = monthlyVol > 0 ? monthlyFees / monthlyVol : 0;
+
+    return { totalVol, amexVol, totalFees, amexFees, monthlyVol, monthlyFees, oer };
+  }, [excludeAmex, fields]);
+
+  useEffect(() => {
+    setFields((prev) => {
+      const vol = derived.monthlyVol;
+      const fees = derived.monthlyFees;
+      const oer = derived.oer;
+      return {
+        ...prev,
+        monthly_volume_non_amex: {
+          ...prev.monthly_volume_non_amex,
+          value: vol ? `$${vol.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : prev.monthly_volume_non_amex.value,
+          confidence: prev.monthly_volume_non_amex.confidence ?? 0.7,
+          page: prev.monthly_volume_non_amex.page ?? 2,
+        },
+        monthly_fees_non_amex: {
+          ...prev.monthly_fees_non_amex,
+          value: fees ? `$${fees.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : prev.monthly_fees_non_amex.value,
+          confidence: prev.monthly_fees_non_amex.confidence ?? 0.68,
+          page: prev.monthly_fees_non_amex.page ?? 3,
+        },
+        effective_rate: {
+          ...prev.effective_rate,
+          value: oer ? `${(oer * 100).toFixed(2)}%` : prev.effective_rate.value,
+          confidence: prev.effective_rate.confidence ?? 0.65,
+          page: prev.effective_rate.page ?? 2,
+        },
+      };
     });
-
-    setNonPci([]);
-    setDowngrades([]);
-  }
+  }, [derived.monthlyFees, derived.monthlyVol, derived.oer]);
 
   function jumpToEvidence(ref: EvidenceRef, id?: string) {
     setSelectedPage(ref.page);
     if (id) setSelectedEvidenceId(id);
   }
 
+  function resetScan() {
+    timers.current.forEach((t) => window.clearTimeout(t));
+    timers.current = [];
+    setPhase("idle");
+    setStatus("Idle");
+    setProgress(0);
+    setSelectedPage(1);
+    setSelectedEvidenceId(null);
+    setNonPci([]);
+    setDowngrades([]);
+    setFields((prev) => {
+      const next: Record<FieldKey, FieldValue> = { ...prev };
+      (Object.keys(baseFields) as FieldKey[]).forEach((k) => {
+        next[k] = { ...baseFields[k], value: "—", confidence: 0.0, page: prev[k].page, override: "" };
+      });
+      return next;
+    });
+  }
+
   function startScan() {
     resetScan();
     setStatus("Scanning");
     setPhase("classify");
-  }
 
-  function usePatriotSample() {
-    resetScan();
-    setStatus("Scanning");
-    setPhase("classify");
-
-    setFields((prev) => ({
-      ...prev,
-      processor_detected: { ...prev.processor_detected, value: "commercecontrol_statement", confidence: 0.93, page: 1 },
-      company_dba: { ...prev.company_dba, value: "PATRIOT FLOORING SUPPLIE", confidence: 0.88, page: 1 },
-      mid: { ...prev.mid, value: "737191920880", confidence: 0.96, page: 1 },
-      statement_period: { ...prev.statement_period, value: "12/01/25 – 12/31/25", confidence: 0.95, page: 1 },
-      total_submitted_volume: { ...prev.total_submitted_volume, value: "$289,467.20", confidence: 0.92, page: 1 },
-      amex_volume: { ...prev.amex_volume, value: "$224,793.00", confidence: 0.9, page: 2 },
-      total_fees: { ...prev.total_fees, value: "$2,096.96", confidence: 0.9, page: 1 },
-    }));
-
-    const scheduleTimers: number[] = [];
     const schedule = (ms: number, fn: () => void) => {
       const t = window.setTimeout(fn, ms);
-      scheduleTimers.push(t);
       timers.current.push(t);
     };
 
-    schedule(450, () => {
+    schedule(500, () => {
       setProgress(18);
       setPhase("extract");
+      setFields((prev) => ({
+        ...prev,
+        processor_detected: { ...prev.processor_detected, value: "commercecontrol_statement", confidence: 0.9, page: 1 },
+        company_dba: { ...prev.company_dba, value: "PATRIOT FLOORING SUPPLIE", confidence: 0.86, page: 1 },
+        mid: { ...prev.mid, value: "737191920880", confidence: 0.95, page: 1 },
+        statement_period: { ...prev.statement_period, value: "12/01/25 – 12/31/25", confidence: 0.94, page: 1 },
+        total_submitted_volume: { ...prev.total_submitted_volume, value: "$289,467.20", confidence: 0.92, page: 1 },
+        amex_volume: { ...prev.amex_volume, value: "$224,793.00", confidence: 0.9, page: 2 },
+        total_fees: { ...prev.total_fees, value: "$2,096.96", confidence: 0.9, page: 1 },
+      }));
     });
 
-    schedule(900, () => {
-      setProgress(40);
+    schedule(1000, () => {
+      setProgress(42);
       setPhase("non_pci");
-    });
-
-    schedule(1100, () => {
       const r1: NonPciRow = {
         id: uid("npc"),
         raw: "NON PCI COMPLIANCE FEE",
@@ -255,274 +285,53 @@ export default function Dashboard() {
         ref: { page: 4, box: { x: 10, y: 28, w: 54, h: 8 } },
         status: "Refund Candidate",
       };
-      setNonPci((prev) => [...prev, r1]);
+      setNonPci([r1]);
       setSelectedEvidenceId(r1.id);
       setSelectedPage(4);
     });
 
-    schedule(1350, () => {
+    schedule(1500, () => {
       setProgress(62);
       setPhase("downgrade");
-    });
-
-    schedule(1650, () => {
-      const d2: DowngradeRow = {
+      const d1: DowngradeRow = {
         id: uid("dgr"),
         ofTrans: "—",
         volume: "$32,324.71",
         raw: "VISA ASSESSMENT FEE CR .001400 TIMES $32,324.71",
-        downgradeRate: "—",
-        ifCorrected: "—",
         revenueLost: "—",
         ref: { page: 3, box: { x: 8, y: 56, w: 78, h: 9 } },
         status: "Needs Review",
       };
-      setDowngrades((prev) => [...prev, d2]);
+      setDowngrades([d1]);
       setStatus("Needs Review");
     });
 
-    schedule(2050, () => {
+    schedule(2100, () => {
       setProgress(86);
       setPhase("compute");
-
       setFields((prev) => ({
         ...prev,
         amex_fees: { ...prev.amex_fees, value: "—", confidence: 0.35, page: 3 },
       }));
     });
 
-    schedule(2550, () => {
+    schedule(2600, () => {
       setProgress(100);
       setPhase("complete");
       setStatus((s) => (s === "Needs Review" ? "Needs Review" : "Complete"));
     });
   }
 
-  const timers = useRef<number[]>([]);
   useEffect(() => {
     return () => {
       timers.current.forEach((t) => window.clearTimeout(t));
-      timers.current = [];
     };
   }, []);
-
-  useEffect(() => {
-    timers.current.forEach((t) => window.clearTimeout(t));
-    timers.current = [];
-
-    if (status !== "Scanning") return;
-
-    const schedule = (ms: number, fn: () => void) => {
-      const t = window.setTimeout(fn, ms);
-      timers.current.push(t);
-    };
-
-    if (phase === "classify") {
-      schedule(350, () => setProgress(8));
-      schedule(650, () => {
-        setFields((prev) => ({
-          ...prev,
-          processor_detected: {
-            ...prev.processor_detected,
-            value: processorFamily,
-            confidence: 0.92,
-            page: 1,
-          },
-        }));
-      });
-      schedule(1050, () => {
-        setProgress(18);
-        setPhase("extract");
-      });
-    }
-
-    if (phase === "extract") {
-      schedule(300, () => setProgress(26));
-      schedule(650, () => {
-        setFields((prev) => ({
-          ...prev,
-          company_dba: { ...prev.company_dba, value: "Acme Coffee Roasters", confidence: 0.88, page: 1 },
-          mid: { ...prev.mid, value: "MID-0042187", confidence: 0.9, page: 1 },
-          statement_period: { ...prev.statement_period, value: "2024-01-01 → 2024-01-31", confidence: 0.84, page: 1 },
-          total_submitted_volume: { ...prev.total_submitted_volume, value: "$85,000.00", confidence: 0.86, page: 2 },
-          amex_volume: { ...prev.amex_volume, value: "$9,400.00", confidence: 0.78, page: 2 },
-          total_fees: { ...prev.total_fees, value: "$2,414.28", confidence: 0.83, page: 3 },
-          amex_fees: { ...prev.amex_fees, value: "$312.16", confidence: 0.74, page: 3 },
-        }));
-      });
-      schedule(980, () => {
-        setProgress(40);
-        setPhase("non_pci");
-      });
-    }
-
-    if (phase === "non_pci") {
-      schedule(260, () => setProgress(48));
-      schedule(520, () => {
-        const r1: NonPciRow = {
-          id: uid("npc"),
-          raw: "NON PCI COMPLIANCE FEE",
-          amount: "$19.95",
-          ref: { page: 4, box: { x: 10, y: 28, w: 54, h: 8 } },
-          status: "Refund Candidate",
-        };
-        setNonPci((prev) => [...prev, r1]);
-        setSelectedEvidenceId(r1.id);
-        setSelectedPage(r1.ref.page);
-      });
-      schedule(900, () => {
-        const r2: NonPciRow = {
-          id: uid("npc"),
-          raw: "NON-PCI PROGRAM FEE",
-          amount: "$29.95",
-          ref: { page: 5, box: { x: 12, y: 45, w: 52, h: 8 } },
-          status: "Refund Candidate",
-        };
-        setNonPci((prev) => [...prev, r2]);
-      });
-      schedule(1200, () => {
-        setProgress(62);
-        setPhase("downgrade");
-      });
-    }
-
-    if (phase === "downgrade") {
-      schedule(250, () => setProgress(70));
-      schedule(520, () => {
-        const d1: DowngradeRow = {
-          id: uid("dgr"),
-          ofTrans: "124",
-          volume: "$12,480.00",
-          raw: "EIRF • VISA CPS/REWARDS 2",
-          downgradeRate: "2.30%",
-          ifCorrected: "1.80%",
-          revenueLost: "$62.40",
-          feeActual: "$287.04",
-          ref: { page: 7, box: { x: 8, y: 22, w: 60, h: 10 } },
-        };
-        setDowngrades((prev) => [...prev, d1]);
-        setSelectedEvidenceId(d1.id);
-        setSelectedPage(d1.ref.page);
-      });
-      schedule(860, () => {
-        const d2: DowngradeRow = {
-          id: uid("dgr"),
-          ofTrans: "39",
-          volume: "$4,910.00",
-          raw: "NON-QUAL • MC STANDARD",
-          downgradeRate: "3.10%",
-          ifCorrected: "2.10%",
-          revenueLost: "$49.10",
-          ref: { page: 7, box: { x: 10, y: 40, w: 58, h: 10 } },
-          status: "Needs Review",
-        };
-        setDowngrades((prev) => [...prev, d2]);
-        setStatus("Needs Review");
-      });
-      schedule(1200, () => {
-        setProgress(86);
-        setPhase("compute");
-      });
-    }
-
-    if (phase === "compute") {
-      schedule(300, () => setProgress(92));
-      schedule(650, () => {
-        const totalVol = 85000;
-        const amexVol = 9400;
-        const monthlyVol = totalVol - amexVol;
-        const totalFees = 2414.28;
-        const amexFees = 312.16;
-        const monthlyFees = totalFees - amexFees;
-        const oer = monthlyFees / monthlyVol;
-
-        setFields((prev) => ({
-          ...prev,
-          monthly_volume_non_amex: {
-            ...prev.monthly_volume_non_amex,
-            value: `$${monthlyVol.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-            confidence: 0.76,
-            page: 2,
-          },
-          monthly_fees_non_amex: {
-            ...prev.monthly_fees_non_amex,
-            value: `$${monthlyFees.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-            confidence: 0.72,
-            page: 3,
-          },
-          effective_rate: {
-            ...prev.effective_rate,
-            value: `${(oer * 100).toFixed(2)}%`,
-            confidence: 0.68,
-            page: 2,
-          },
-        }));
-      });
-      schedule(980, () => {
-        setProgress(100);
-        setPhase("complete");
-        setStatus((s) => (s === "Needs Review" ? "Needs Review" : "Complete"));
-      });
-    }
-  }, [phase, processorFamily, status]);
-
-  const derived = useMemo(() => {
-    const parseMoney = (s?: string) => {
-      if (!s) return 0;
-      const n = Number(String(s).replace(/[^0-9.-]/g, ""));
-      return Number.isNaN(n) ? 0 : n;
-    };
-
-    const totalVol = parseMoney(fields.total_submitted_volume.value);
-    const amexVol = parseMoney(fields.amex_volume.value);
-    const totalFees = parseMoney(fields.total_fees.value);
-    const amexFees = parseMoney(fields.amex_fees.value);
-
-    const monthlyVol = Math.max(0, totalVol - (excludeAmex ? amexVol : 0));
-    const monthlyFees = Math.max(0, totalFees - (excludeAmex ? amexFees : 0));
-
-    const oer = monthlyVol > 0 ? monthlyFees / monthlyVol : 0;
-
-    return { monthlyVol, monthlyFees, oer };
-  }, [excludeAmex, fields]);
-
-  useEffect(() => {
-    if (status === "Idle") return;
-
-    const vol = derived.monthlyVol;
-    const fees = derived.monthlyFees;
-    const oer = derived.oer;
-
-    setFields((prev) => ({
-      ...prev,
-      monthly_volume_non_amex: {
-        ...prev.monthly_volume_non_amex,
-        value: vol
-          ? `$${vol.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-          : prev.monthly_volume_non_amex.value,
-        confidence: prev.monthly_volume_non_amex.confidence ?? 0.7,
-        page: prev.monthly_volume_non_amex.page ?? 2,
-      },
-      monthly_fees_non_amex: {
-        ...prev.monthly_fees_non_amex,
-        value: fees
-          ? `$${fees.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-          : prev.monthly_fees_non_amex.value,
-        confidence: prev.monthly_fees_non_amex.confidence ?? 0.68,
-        page: prev.monthly_fees_non_amex.page ?? 3,
-      },
-      effective_rate: {
-        ...prev.effective_rate,
-        value: oer ? `${(oer * 100).toFixed(2)}%` : prev.effective_rate.value,
-        confidence: prev.effective_rate.confidence ?? 0.65,
-        page: prev.effective_rate.page ?? 2,
-      },
-    }));
-  }, [derived.monthlyFees, derived.monthlyVol, derived.oer, status]);
 
   return (
     <DashboardLayout>
       <div className="space-y-6">
+        {/* Top control card */}
         <div className="rounded-2xl border border-border bg-card/80 backdrop-blur supports-[backdrop-filter]:bg-card/60 shadow-sm">
           <div className="p-4 sm:p-5">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
@@ -586,12 +395,7 @@ export default function Dashboard() {
                     Upload PDF
                   </Button>
 
-                  <Button
-                    data-testid="button-start-scan"
-                    className="h-10 shadow-sm"
-                    onClick={startScan}
-                    disabled={isScanning}
-                  >
+                  <Button data-testid="button-start-scan" className="h-10 shadow-sm" onClick={startScan} disabled={isScanning}>
                     {isScanning ? <Pause className="w-4 h-4 mr-2" /> : <Play className="w-4 h-4 mr-2" />}
                     {isScanning ? "Scanning" : "Start scan"}
                   </Button>
@@ -644,163 +448,156 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="space-y-6">
-          {/* Full-width thin live results strip */}
-          <Card className="p-4 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p data-testid="text-live-strip-title" className="font-semibold">
-                  Live Results
-                </p>
-                <p data-testid="text-live-strip-subtitle" className="text-xs text-muted-foreground mt-1">
-                  Thin, full-width stream of key rows. Click a row to jump to evidence.
-                </p>
-              </div>
-              <Badge
-                data-testid="badge-live-strip"
-                variant="outline"
-                className={
-                  status === "Complete"
-                    ? "text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
-                    : status === "Needs Review"
-                      ? "text-xs bg-amber-500/10 text-amber-700 border-amber-500/20"
-                      : "text-xs bg-sky-500/10 text-sky-600 border-sky-500/20"
-                }
-              >
-                {status === "Complete" ? "Done" : status === "Needs Review" ? "Review" : "Live"}
-              </Badge>
+        {/* Full-width thin live results strip */}
+        <Card className="p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p data-testid="text-live-strip-title" className="font-semibold">
+                Live Results
+              </p>
+              <p data-testid="text-live-strip-subtitle" className="text-xs text-muted-foreground mt-1">
+                Thin, full-width stream of key rows. Click a row to jump to evidence.
+              </p>
             </div>
+            <Badge
+              data-testid="badge-live-strip"
+              variant="outline"
+              className={
+                status === "Complete"
+                  ? "text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                  : status === "Needs Review"
+                    ? "text-xs bg-amber-500/10 text-amber-700 border-amber-500/20"
+                    : "text-xs bg-sky-500/10 text-sky-600 border-sky-500/20"
+              }
+            >
+              {status === "Complete" ? "Done" : status === "Needs Review" ? "Review" : "Live"}
+            </Badge>
+          </div>
 
-            <Separator className="my-3" />
+          <Separator className="my-3" />
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {/* Non-PCI mini table */}
-              <div className="rounded-lg border border-border overflow-hidden">
-                <div className="flex items-center justify-between bg-secondary/20 px-3 py-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Badge data-testid="badge-live-strip-nonpci" variant="outline" className="text-[11px] bg-red-500/10 text-red-600 border-red-500/20">
-                      Non-PCI
-                    </Badge>
-                    <p data-testid="text-live-strip-nonpci-title" className="text-xs font-semibold truncate">
-                      Refund candidates
-                    </p>
-                  </div>
-                  <p data-testid="text-live-strip-nonpci-total" className="font-mono text-xs text-muted-foreground">
-                    ${nonPciTotal.toFixed(2)}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="rounded-lg border border-border overflow-hidden">
+              <div className="flex items-center justify-between bg-secondary/20 px-3 py-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Badge data-testid="badge-live-strip-nonpci" variant="outline" className="text-[11px] bg-red-500/10 text-red-600 border-red-500/20">
+                    Non-PCI
+                  </Badge>
+                  <p data-testid="text-live-strip-nonpci-title" className="text-xs font-semibold truncate">
+                    Refund candidates
                   </p>
                 </div>
+                <p data-testid="text-live-strip-nonpci-total" className="font-mono text-xs text-muted-foreground">
+                  ${nonPciTotal.toFixed(2)}
+                </p>
+              </div>
 
-                <div className="divide-y divide-border max-h-[150px] overflow-auto">
-                  {nonPci.length === 0 ? (
-                    <div className="p-3">
-                      <p data-testid="text-live-strip-nonpci-empty" className="text-xs text-muted-foreground">
-                        {phase === "idle" ? "No rows yet." : "Streaming…"}
-                      </p>
-                    </div>
-                  ) : (
-                    nonPci.map((r) => (
-                      <button
-                        key={r.id}
-                        data-testid={`strip-nonpci-${r.id}`}
-                        className="w-full text-left px-3 py-2 hover:bg-secondary/20 transition-colors"
-                        onClick={() => jumpToEvidence(r.ref, r.id)}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p data-testid={`text-strip-nonpci-raw-${r.id}`} className="text-xs font-medium truncate">
-                              {r.raw}
-                            </p>
-                            <p data-testid={`text-strip-nonpci-page-${r.id}`} className="text-[11px] text-muted-foreground mt-0.5">
+              <div className="divide-y divide-border max-h-[150px] overflow-auto">
+                {nonPci.length === 0 ? (
+                  <div className="p-3">
+                    <p data-testid="text-live-strip-nonpci-empty" className="text-xs text-muted-foreground">
+                      {phase === "idle" ? "No rows yet." : "Streaming…"}
+                    </p>
+                  </div>
+                ) : (
+                  nonPci.map((r) => (
+                    <button
+                      key={r.id}
+                      data-testid={`strip-nonpci-${r.id}`}
+                      className="w-full text-left px-3 py-2 hover:bg-secondary/20 transition-colors"
+                      onClick={() => jumpToEvidence(r.ref, r.id)}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p data-testid={`text-strip-nonpci-raw-${r.id}`} className="text-xs font-medium truncate">
+                            {r.raw}
+                          </p>
+                          <p data-testid={`text-strip-nonpci-page-${r.id}`} className="text-[11px] text-muted-foreground mt-0.5">
+                            p.{r.ref.page}
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p data-testid={`text-strip-nonpci-amount-${r.id}`} className="font-mono text-xs">
+                            {r.amount}
+                          </p>
+                        </div>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-border overflow-hidden">
+              <div className="flex items-center justify-between bg-secondary/20 px-3 py-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Badge data-testid="badge-live-strip-downgrade" variant="outline" className="text-[11px] bg-yellow-400/15 text-yellow-700 border-yellow-500/20">
+                    Downgrades
+                  </Badge>
+                  <p data-testid="text-live-strip-downgrade-title" className="text-xs font-semibold truncate">
+                    MADR-style stream
+                  </p>
+                </div>
+                <p data-testid="text-live-strip-downgrade-count" className="text-xs text-muted-foreground">
+                  {downgrades.length} rows
+                </p>
+              </div>
+
+              <div className="divide-y divide-border max-h-[150px] overflow-auto">
+                {downgrades.length === 0 ? (
+                  <div className="p-3">
+                    <p data-testid="text-live-strip-downgrade-empty" className="text-xs text-muted-foreground">
+                      {phase === "idle" ? "No rows yet." : "Streaming…"}
+                    </p>
+                  </div>
+                ) : (
+                  downgrades.map((r) => (
+                    <button
+                      key={r.id}
+                      data-testid={`strip-downgrade-${r.id}`}
+                      className="w-full text-left px-3 py-2 hover:bg-secondary/20 transition-colors"
+                      onClick={() => jumpToEvidence(r.ref, r.id)}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p data-testid={`text-strip-downgrade-raw-${r.id}`} className="text-xs font-medium truncate">
+                            {r.raw}
+                          </p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <p data-testid={`text-strip-downgrade-page-${r.id}`} className="text-[11px] text-muted-foreground">
                               p.{r.ref.page}
                             </p>
-                          </div>
-                          <div className="shrink-0 text-right">
-                            <p data-testid={`text-strip-nonpci-amount-${r.id}`} className="font-mono text-xs">
-                              {r.amount}
-                            </p>
-                          </div>
-                        </div>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              {/* Downgrade mini table */}
-              <div className="rounded-lg border border-border overflow-hidden">
-                <div className="flex items-center justify-between bg-secondary/20 px-3 py-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Badge
-                      data-testid="badge-live-strip-downgrade"
-                      variant="outline"
-                      className="text-[11px] bg-yellow-400/15 text-yellow-700 border-yellow-500/20"
-                    >
-                      Downgrades
-                    </Badge>
-                    <p data-testid="text-live-strip-downgrade-title" className="text-xs font-semibold truncate">
-                      MADR-style stream
-                    </p>
-                  </div>
-                  <p data-testid="text-live-strip-downgrade-count" className="text-xs text-muted-foreground">
-                    {downgrades.length} rows
-                  </p>
-                </div>
-
-                <div className="divide-y divide-border max-h-[150px] overflow-auto">
-                  {downgrades.length === 0 ? (
-                    <div className="p-3">
-                      <p data-testid="text-live-strip-downgrade-empty" className="text-xs text-muted-foreground">
-                        {phase === "idle" ? "No rows yet." : "Streaming…"}
-                      </p>
-                    </div>
-                  ) : (
-                    downgrades.map((r) => (
-                      <button
-                        key={r.id}
-                        data-testid={`strip-downgrade-${r.id}`}
-                        className="w-full text-left px-3 py-2 hover:bg-secondary/20 transition-colors"
-                        onClick={() => jumpToEvidence(r.ref, r.id)}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p data-testid={`text-strip-downgrade-raw-${r.id}`} className="text-xs font-medium truncate">
-                              {r.raw}
-                            </p>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <p data-testid={`text-strip-downgrade-page-${r.id}`} className="text-[11px] text-muted-foreground">
-                                p.{r.ref.page}
-                              </p>
-                              {r.status === "Needs Review" && (
-                                <Badge
-                                  data-testid={`badge-strip-downgrade-review-${r.id}`}
-                                  variant="outline"
-                                  className="text-[10px] bg-amber-500/10 text-amber-700 border-amber-500/20"
-                                >
-                                  Needs Review
-                                </Badge>
-                              )}
-                            </div>
-                          </div>
-                          <div className="shrink-0 text-right">
-                            <p data-testid={`text-strip-downgrade-volume-${r.id}`} className="font-mono text-xs">
-                              {r.volume}
-                            </p>
-                            <p data-testid={`text-strip-downgrade-lost-${r.id}`} className="font-mono text-[11px] text-muted-foreground mt-0.5">
-                              {r.revenueLost ?? "—"}
-                            </p>
+                            {r.status === "Needs Review" && (
+                              <Badge
+                                data-testid={`badge-strip-downgrade-review-${r.id}`}
+                                variant="outline"
+                                className="text-[10px] bg-amber-500/10 text-amber-700 border-amber-500/20"
+                              >
+                                Needs Review
+                              </Badge>
+                            )}
                           </div>
                         </div>
-                      </button>
-                    ))
-                  )}
-                </div>
+                        <div className="shrink-0 text-right">
+                          <p data-testid={`text-strip-downgrade-volume-${r.id}`} className="font-mono text-xs">
+                            {r.volume}
+                          </p>
+                          <p data-testid={`text-strip-downgrade-lost-${r.id}`} className="font-mono text-[11px] text-muted-foreground mt-0.5">
+                            {r.revenueLost ?? "—"}
+                          </p>
+                        </div>
+                      </div>
+                    </button>
+                  ))
+                )}
               </div>
             </div>
-          </Card>
+          </div>
+        </Card>
 
-          {/* Main workspace below */}
-          <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-            <div className="xl:col-span-3 space-y-6">
+        {/* Main workspace below */}
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+          <div className="xl:col-span-3 space-y-6">
             <Card className="p-5 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -828,7 +625,8 @@ export default function Dashboard() {
                   </div>
 
                   {["processor_detected", "company_dba", "mid", "statement_period"].map((k) => {
-                    const f = fields[k];
+                    const key = k as FieldKey;
+                    const f = fields[key];
                     return (
                       <div key={k} className="rounded-lg border border-border bg-secondary/10 p-3">
                         <div className="flex items-start justify-between gap-2">
@@ -847,9 +645,7 @@ export default function Dashboard() {
                             <button
                               data-testid={`button-field-jump-${k}`}
                               className="text-[11px] text-primary hover:underline"
-                              onClick={() =>
-                                f.page ? jumpToEvidence({ page: f.page, box: { x: 12, y: 20, w: 58, h: 8 } }, k) : null
-                              }
+                              onClick={() => (f.page ? jumpToEvidence({ page: f.page, box: { x: 12, y: 20, w: 58, h: 8 } }, k) : null)}
                             >
                               {f.page ? `p.${f.page}` : ""}
                             </button>
@@ -860,7 +656,7 @@ export default function Dashboard() {
                           <Input
                             data-testid={`input-field-override-${k}`}
                             value={f.override ?? ""}
-                            onChange={(e) => setFields((prev) => ({ ...prev, [k]: { ...prev[k], override: e.target.value } }))}
+                            onChange={(e) => setFields((prev) => ({ ...prev, [key]: { ...prev[key], override: e.target.value } }))}
                             placeholder="Override…"
                             className="h-9 font-mono"
                           />
@@ -888,7 +684,8 @@ export default function Dashboard() {
                       "monthly_fees_non_amex",
                       "effective_rate",
                     ].map((k) => {
-                      const f = fields[k];
+                      const key = k as FieldKey;
+                      const f = fields[key];
                       return (
                         <div key={k} className="rounded-lg border border-border bg-secondary/10 p-3">
                           <p data-testid={`text-field-label-${k}`} className="text-[11px] text-muted-foreground">
@@ -904,9 +701,7 @@ export default function Dashboard() {
                             <button
                               data-testid={`button-field-jump-${k}`}
                               className="text-[11px] text-primary hover:underline"
-                              onClick={() =>
-                                f.page ? jumpToEvidence({ page: f.page, box: { x: 10, y: 36, w: 62, h: 8 } }, k) : null
-                              }
+                              onClick={() => (f.page ? jumpToEvidence({ page: f.page, box: { x: 10, y: 36, w: 62, h: 8 } }, k) : null)}
                             >
                               {f.page ? `p.${f.page}` : ""}
                             </button>
@@ -915,7 +710,7 @@ export default function Dashboard() {
                             <Input
                               data-testid={`input-field-override-${k}`}
                               value={f.override ?? ""}
-                              onChange={(e) => setFields((prev) => ({ ...prev, [k]: { ...prev[k], override: e.target.value } }))}
+                              onChange={(e) => setFields((prev) => ({ ...prev, [key]: { ...prev[key], override: e.target.value } }))}
                               placeholder="Override…"
                               className="h-9 font-mono"
                             />
@@ -947,11 +742,7 @@ export default function Dashboard() {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <p className="text-xs font-semibold text-muted-foreground">Non-PCI fees</p>
-                    <Badge
-                      data-testid="badge-nonpci"
-                      variant="outline"
-                      className="text-[11px] bg-red-500/10 text-red-600 border-red-500/20"
-                    >
+                    <Badge data-testid="badge-nonpci" variant="outline" className="text-[11px] bg-red-500/10 text-red-600 border-red-500/20">
                       Phase C
                     </Badge>
                   </div>
@@ -1011,11 +802,7 @@ export default function Dashboard() {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <p className="text-xs font-semibold text-muted-foreground">Downgrade summary</p>
-                    <Badge
-                      data-testid="badge-downgrades"
-                      variant="outline"
-                      className="text-[11px] bg-yellow-400/15 text-yellow-700 border-yellow-500/20"
-                    >
+                    <Badge data-testid="badge-downgrades" variant="outline" className="text-[11px] bg-yellow-400/15 text-yellow-700 border-yellow-500/20">
                       Phase D
                     </Badge>
                   </div>
@@ -1111,20 +898,10 @@ export default function Dashboard() {
                     <Badge data-testid="badge-page" variant="outline" className="font-mono text-xs">
                       Page {selectedPage} / 12
                     </Badge>
-                    <Button
-                      data-testid="button-prev-page"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setSelectedPage((p) => Math.max(1, p - 1))}
-                    >
+                    <Button data-testid="button-prev-page" size="sm" variant="outline" onClick={() => setSelectedPage((p) => Math.max(1, p - 1))}>
                       Prev
                     </Button>
-                    <Button
-                      data-testid="button-next-page"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setSelectedPage((p) => Math.min(12, p + 1))}
-                    >
+                    <Button data-testid="button-next-page" size="sm" variant="outline" onClick={() => setSelectedPage((p) => Math.min(12, p + 1))}>
                       Next
                     </Button>
                   </div>
@@ -1157,87 +934,72 @@ export default function Dashboard() {
                       </div>
                     </div>
 
-                    <div className="absolute inset-0 pt-12 p-4">
-                      <div className="space-y-3 opacity-90">
-                        {[0, 1, 2, 3, 4, 5].map((i) => (
-                          <div key={i} className="h-4 rounded bg-secondary/30" />
-                        ))}
-                        <div className="h-4 rounded bg-secondary/20 w-2/3" />
-                        <div className="h-4 rounded bg-secondary/20 w-5/6" />
-                        <div className="h-4 rounded bg-secondary/20 w-3/4" />
-                      </div>
+                    <div className="absolute inset-0 pt-10 p-4">
+                      <div className="h-full rounded-lg bg-background/70 border border-border relative overflow-hidden">
+                        <div className="absolute inset-0 opacity-[0.18]" style={{ backgroundImage: "linear-gradient(to bottom, rgba(0,0,0,0.04), rgba(0,0,0,0)), radial-gradient(circle at 20% 25%, rgba(0,0,0,0.06), transparent 60%)" }} />
 
-                      {nonPci
-                        .filter((r) => r.ref.page === selectedPage)
-                        .map((r) => (
-                          <button
-                            key={r.id}
-                            data-testid={`outline-nonpci-${r.id}`}
-                            className={`absolute rounded-md border-2 bg-red-500/10 transition-all ${
-                              selectedEvidenceId === r.id
-                                ? "border-red-500 shadow-[0_0_0_4px_rgba(239,68,68,0.15)]"
-                                : "border-red-500/70"
-                            }`}
-                            style={{
-                              left: `${r.ref.box.x}%`,
-                              top: `${r.ref.box.y}%`,
-                              width: `${r.ref.box.w}%`,
-                              height: `${r.ref.box.h}%`,
-                            }}
-                            onClick={() => setSelectedEvidenceId(r.id)}
-                            title={r.raw}
-                          />
-                        ))}
+                        {nonPci
+                          .filter((r) => r.ref.page === selectedPage)
+                          .map((r) => (
+                            <button
+                              key={r.id}
+                              data-testid={`outline-nonpci-${r.id}`}
+                              className={`absolute border-2 rounded-md bg-red-500/5 ${
+                                selectedEvidenceId === r.id
+                                  ? "border-red-500 shadow-[0_0_0_4px_rgba(239,68,68,0.18)]"
+                                  : "border-red-500/70"
+                              }`}
+                              style={{ left: `${r.ref.box.x}%`, top: `${r.ref.box.y}%`, width: `${r.ref.box.w}%`, height: `${r.ref.box.h}%` }}
+                              onClick={() => setSelectedEvidenceId(r.id)}
+                              title={r.raw}
+                            />
+                          ))}
 
-                      {downgrades
-                        .filter((r) => r.ref.page === selectedPage)
-                        .map((r) => (
-                          <button
-                            key={r.id}
-                            data-testid={`outline-downgrade-${r.id}`}
-                            className={`absolute rounded-md border-2 bg-yellow-400/10 transition-all ${
-                              selectedEvidenceId === r.id
-                                ? "border-yellow-500 shadow-[0_0_0_4px_rgba(234,179,8,0.18)]"
-                                : "border-yellow-500/70"
-                            }`}
-                            style={{
-                              left: `${r.ref.box.x}%`,
-                              top: `${r.ref.box.y}%`,
-                              width: `${r.ref.box.w}%`,
-                              height: `${r.ref.box.h}%`,
-                            }}
-                            onClick={() => setSelectedEvidenceId(r.id)}
-                            title={r.raw}
-                          />
-                        ))}
+                        {downgrades
+                          .filter((r) => r.ref.page === selectedPage)
+                          .map((r) => (
+                            <button
+                              key={r.id}
+                              data-testid={`outline-downgrade-${r.id}`}
+                              className={`absolute border-2 rounded-md bg-yellow-400/10 ${
+                                selectedEvidenceId === r.id
+                                  ? "border-yellow-500 shadow-[0_0_0_4px_rgba(234,179,8,0.18)]"
+                                  : "border-yellow-500/70"
+                              }`}
+                              style={{ left: `${r.ref.box.x}%`, top: `${r.ref.box.y}%`, width: `${r.ref.box.w}%`, height: `${r.ref.box.h}%` }}
+                              onClick={() => setSelectedEvidenceId(r.id)}
+                              title={r.raw}
+                            />
+                          ))}
 
-                      {status === "Idle" && (
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <div className="rounded-xl border border-border bg-background/80 backdrop-blur p-5 shadow-sm max-w-md">
-                            <div className="flex items-start gap-3">
-                              <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
-                                <Sparkles className="w-5 h-5" />
-                              </div>
-                              <div className="min-w-0">
-                                <p data-testid="text-pdf-empty-title" className="font-semibold">
-                                  Ready to scan
-                                </p>
-                                <p data-testid="text-pdf-empty-body" className="text-sm text-muted-foreground mt-1">
-                                  Click “Start scan” to simulate phased extraction and live evidence outlines.
-                                </p>
-                                <div className="mt-4 flex items-center gap-2">
-                                  <Button data-testid="button-primary-start" onClick={startScan}>
-                                    <Play className="w-4 h-4 mr-2" /> Start scan
-                                  </Button>
-                                  <Button data-testid="button-primary-upload" variant="outline" onClick={startScan}>
-                                    <UploadCloud className="w-4 h-4 mr-2" /> Upload PDF
-                                  </Button>
+                        {status === "Idle" && (
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <div className="rounded-xl border border-border bg-background/80 backdrop-blur p-5 shadow-sm max-w-md">
+                              <div className="flex items-start gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                                  <Sparkles className="w-5 h-5" />
+                                </div>
+                                <div className="min-w-0">
+                                  <p data-testid="text-pdf-empty-title" className="font-semibold">
+                                    Ready to scan
+                                  </p>
+                                  <p data-testid="text-pdf-empty-body" className="text-sm text-muted-foreground mt-1">
+                                    Click “Start scan” to simulate phased extraction and live evidence outlines.
+                                  </p>
+                                  <div className="mt-4 flex items-center gap-2">
+                                    <Button data-testid="button-primary-start" onClick={startScan}>
+                                      <Play className="w-4 h-4 mr-2" /> Start scan
+                                    </Button>
+                                    <Button data-testid="button-primary-upload" variant="outline" onClick={startScan}>
+                                      <UploadCloud className="w-4 h-4 mr-2" /> Upload PDF
+                                    </Button>
+                                  </div>
                                 </div>
                               </div>
                             </div>
                           </div>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1261,8 +1023,6 @@ export default function Dashboard() {
               </div>
             </Card>
           </div>
-
-          {/* Right results table removed (now full-width strip above) */}
 
           <div className="xl:col-span-3 space-y-6">
             <Card className="p-5 shadow-sm">
@@ -1296,11 +1056,7 @@ export default function Dashboard() {
                     <p data-testid="text-nonpci-table-title" className="text-xs font-semibold">
                       Non-PCI Fees Found
                     </p>
-                    <Badge
-                      data-testid="badge-nonpci-table"
-                      variant="outline"
-                      className="text-[11px] bg-red-500/10 text-red-600 border-red-500/20"
-                    >
+                    <Badge data-testid="badge-nonpci-table" variant="outline" className="text-[11px] bg-red-500/10 text-red-600 border-red-500/20">
                       RED
                     </Badge>
                   </div>
@@ -1362,11 +1118,7 @@ export default function Dashboard() {
                     <p data-testid="text-downgrade-table-title" className="text-xs font-semibold">
                       Downgrades Found (MADR)
                     </p>
-                    <Badge
-                      data-testid="badge-downgrade-table"
-                      variant="outline"
-                      className="text-[11px] bg-yellow-400/15 text-yellow-700 border-yellow-500/20"
-                    >
+                    <Badge data-testid="badge-downgrade-table" variant="outline" className="text-[11px] bg-yellow-400/15 text-yellow-700 border-yellow-500/20">
                       YELLOW
                     </Badge>
                   </div>
