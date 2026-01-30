@@ -1001,8 +1001,16 @@ export default function Dashboard() {
                     Rows stream in during Phase C/D. Clicking a row jumps to evidence.
                   </p>
                 </div>
-                <Badge data-testid="badge-live" variant="outline" className="text-xs bg-sky-500/10 text-sky-600 border-sky-500/20">
-                  Live
+                <Badge
+                  data-testid="badge-live"
+                  variant="outline"
+                  className={
+                    status === "Complete"
+                      ? "text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                      : "text-xs bg-sky-500/10 text-sky-600 border-sky-500/20"
+                  }
+                >
+                  {status === "Complete" ? "Done" : "Live"}
                 </Badge>
               </div>
 
