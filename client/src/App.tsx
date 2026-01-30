@@ -10,6 +10,7 @@ import Upload from "@/pages/Upload";
 import Findings from "@/pages/Findings";
 import Reports from "@/pages/Reports";
 import Settings from "@/pages/Settings";
+import Review from "./pages/Review";
 
 function Router() {
   return (
@@ -19,6 +20,7 @@ function Router() {
       <Route path="/upload" component={Upload} />
       <Route path="/findings" component={Findings} />
       <Route path="/reports" component={Reports} />
+      <Route path="/review" component={Review} />
       <Route path="/settings" component={Settings} />
       <Route component={NotFound} />
     </Switch>
