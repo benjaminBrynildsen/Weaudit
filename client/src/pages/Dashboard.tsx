@@ -308,6 +308,7 @@ export default function Dashboard() {
     schedule(1500, () => {
       setProgress(62);
       setPhase("downgrade");
+
       const d1: DowngradeRow = {
         id: uid("dgr"),
         ofTrans: "—",
@@ -318,7 +319,63 @@ export default function Dashboard() {
         flagged: true,
         flagReason: "Keyword-triggered: not in rule pack",
       };
-      setDowngrades([d1]);
+
+      const d2: DowngradeRow = {
+        id: uid("dgr"),
+        ofTrans: "14",
+        volume: "$18,902.11",
+        raw: "MC EIRF DOWNGRADE (EIRF) 1.95% + $0.10",
+        revenueLost: "$128.44",
+        ref: { page: 3, box: { x: 9, y: 66, w: 80, h: 9 } },
+        flagged: false,
+        flagReason: "",
+      };
+
+      const d3: DowngradeRow = {
+        id: uid("dgr"),
+        ofTrans: "7",
+        volume: "$6,482.60",
+        raw: "VISA CPS RETAIL KEYED (DOWNGRADE) 2.95% + $0.20",
+        revenueLost: "$41.12",
+        ref: { page: 5, box: { x: 10, y: 22, w: 76, h: 9 } },
+        flagged: true,
+        flagReason: "Processor-coded downgrade: CPS Retail Keyed",
+      };
+
+      const d4: DowngradeRow = {
+        id: uid("dgr"),
+        ofTrans: "3",
+        volume: "$2,143.09",
+        raw: "VISA REWARDS DOWNGRADE (MISROUTED) 3.40% + $0.15",
+        revenueLost: "$19.87",
+        ref: { page: 5, box: { x: 10, y: 33, w: 74, h: 9 } },
+        flagged: true,
+        flagReason: "Downgrade keyword + elevated rate",
+      };
+
+      const d5: DowngradeRow = {
+        id: uid("dgr"),
+        ofTrans: "22",
+        volume: "$41,990.23",
+        raw: "DISCOVER DATA USAGE DOWNGRADE 2.60% + $0.15",
+        revenueLost: "$96.55",
+        ref: { page: 7, box: { x: 11, y: 58, w: 77, h: 9 } },
+        flagged: false,
+        flagReason: "",
+      };
+
+      const d6: DowngradeRow = {
+        id: uid("dgr"),
+        ofTrans: "5",
+        volume: "$4,870.44",
+        raw: "VISA INTL CARD (DOWNGRADE) 3.85% + $0.25",
+        revenueLost: "$33.20",
+        ref: { page: 7, box: { x: 11, y: 69, w: 78, h: 9 } },
+        flagged: true,
+        flagReason: "Cross-border / intl tier applied",
+      };
+
+      setDowngrades([d1, d2, d3, d4, d5, d6]);
     });
 
     schedule(2100, () => {
