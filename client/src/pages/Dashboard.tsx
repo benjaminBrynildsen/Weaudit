@@ -806,13 +806,46 @@ export default function Dashboard() {
                     <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
                       <div className="flex items-start gap-2">
                         <AlertTriangle className="w-4 h-4 text-amber-700 mt-0.5" />
-                        <div className="min-w-0">
-                          <p data-testid="text-needs-review-title" className="text-xs font-semibold text-amber-800">
-                            Needs review
-                          </p>
-                          <p data-testid="text-needs-review-body" className="text-[11px] text-amber-800/80 mt-1">
-                            Keyword-triggered lines that aren’t in the library yet still appear now.
-                          </p>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p data-testid="text-needs-review-title" className="text-xs font-semibold text-amber-800">
+                                Needs review
+                              </p>
+                              <p data-testid="text-needs-review-body" className="text-[11px] text-amber-800/80 mt-1">
+                                Keyword-triggered lines that aren’t in the library yet still appear now. Approve them to complete the scan.
+                              </p>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Button
+                                data-testid="button-approve-review-items"
+                                size="sm"
+                                className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white"
+                                onClick={() => {
+                                  setDowngrades((prev) => prev.map((r) => (r.status === "Needs Review" ? { ...r, status: undefined } : r)));
+                                  setStatus("Complete");
+                                  setPhase("complete");
+                                  setProgress(100);
+                                }}
+                              >
+                                Approve & Finish
+                              </Button>
+                              <Button
+                                data-testid="button-dismiss-review"
+                                size="sm"
+                                variant="outline"
+                                className="h-8"
+                                onClick={() => {
+                                  setStatus("Complete");
+                                  setPhase("complete");
+                                  setProgress(100);
+                                }}
+                              >
+                                Mark done
+                              </Button>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
