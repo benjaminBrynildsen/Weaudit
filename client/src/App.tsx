@@ -7,7 +7,7 @@ import NotFound from "@/pages/not-found";
 import Landing from "@/pages/Landing";
 import Dashboard from "@/pages/Dashboard";
 import Upload from "@/pages/Upload";
-import Findings from "@/pages/Findings";
+import History from "@/pages/History";
 import Reports from "@/pages/Reports";
 import Settings from "@/pages/Settings";
 import Review from "./pages/Review";
@@ -18,7 +18,7 @@ function Router() {
       <Route path="/" component={Landing} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/upload" component={Upload} />
-      <Route path="/findings" component={Findings} />
+      <Route path="/history" component={History} />
       <Route path="/reports" component={Reports} />
       <Route path="/review" component={Review} />
       <Route path="/settings" component={Settings} />

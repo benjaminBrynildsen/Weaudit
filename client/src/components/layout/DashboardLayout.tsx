@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   FileText,
   AlertTriangle,
+  CalendarClock,
   BarChart3,
   Settings,
   LogOut,
@@ -33,7 +34,7 @@ function Sidebar({ collapsed }: SidebarProps) {
 
   const navItems = [
     { icon: LayoutDashboard, label: "Statements", href: "/dashboard" },
-    { icon: AlertTriangle, label: "Findings", href: "/findings" },
+    { icon: CalendarClock, label: "History", href: "/history" },
     { icon: BarChart3, label: "Reports", href: "/reports" },
     { icon: Settings, label: "Settings", href: "/settings" },
     { icon: AlertTriangle, label: "Admin Database", href: "/review" },
