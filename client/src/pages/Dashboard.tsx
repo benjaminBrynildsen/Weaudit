@@ -644,8 +644,163 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-          <div className="xl:col-span-3 space-y-6">
+        <div className="space-y-6">
+          {/* Full-width thin live results strip */}
+          <Card className="p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p data-testid="text-live-strip-title" className="font-semibold">
+                  Live Results
+                </p>
+                <p data-testid="text-live-strip-subtitle" className="text-xs text-muted-foreground mt-1">
+                  Thin, full-width stream of key rows. Click a row to jump to evidence.
+                </p>
+              </div>
+              <Badge
+                data-testid="badge-live-strip"
+                variant="outline"
+                className={
+                  status === "Complete"
+                    ? "text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                    : status === "Needs Review"
+                      ? "text-xs bg-amber-500/10 text-amber-700 border-amber-500/20"
+                      : "text-xs bg-sky-500/10 text-sky-600 border-sky-500/20"
+                }
+              >
+                {status === "Complete" ? "Done" : status === "Needs Review" ? "Review" : "Live"}
+              </Badge>
+            </div>
+
+            <Separator className="my-3" />
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Non-PCI mini table */}
+              <div className="rounded-lg border border-border overflow-hidden">
+                <div className="flex items-center justify-between bg-secondary/20 px-3 py-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Badge data-testid="badge-live-strip-nonpci" variant="outline" className="text-[11px] bg-red-500/10 text-red-600 border-red-500/20">
+                      Non-PCI
+                    </Badge>
+                    <p data-testid="text-live-strip-nonpci-title" className="text-xs font-semibold truncate">
+                      Refund candidates
+                    </p>
+                  </div>
+                  <p data-testid="text-live-strip-nonpci-total" className="font-mono text-xs text-muted-foreground">
+                    ${nonPciTotal.toFixed(2)}
+                  </p>
+                </div>
+
+                <div className="divide-y divide-border max-h-[150px] overflow-auto">
+                  {nonPci.length === 0 ? (
+                    <div className="p-3">
+                      <p data-testid="text-live-strip-nonpci-empty" className="text-xs text-muted-foreground">
+                        {phase === "idle" ? "No rows yet." : "Streaming…"}
+                      </p>
+                    </div>
+                  ) : (
+                    nonPci.map((r) => (
+                      <button
+                        key={r.id}
+                        data-testid={`strip-nonpci-${r.id}`}
+                        className="w-full text-left px-3 py-2 hover:bg-secondary/20 transition-colors"
+                        onClick={() => jumpToEvidence(r.ref, r.id)}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p data-testid={`text-strip-nonpci-raw-${r.id}`} className="text-xs font-medium truncate">
+                              {r.raw}
+                            </p>
+                            <p data-testid={`text-strip-nonpci-page-${r.id}`} className="text-[11px] text-muted-foreground mt-0.5">
+                              p.{r.ref.page}
+                            </p>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p data-testid={`text-strip-nonpci-amount-${r.id}`} className="font-mono text-xs">
+                              {r.amount}
+                            </p>
+                          </div>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Downgrade mini table */}
+              <div className="rounded-lg border border-border overflow-hidden">
+                <div className="flex items-center justify-between bg-secondary/20 px-3 py-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Badge
+                      data-testid="badge-live-strip-downgrade"
+                      variant="outline"
+                      className="text-[11px] bg-yellow-400/15 text-yellow-700 border-yellow-500/20"
+                    >
+                      Downgrades
+                    </Badge>
+                    <p data-testid="text-live-strip-downgrade-title" className="text-xs font-semibold truncate">
+                      MADR-style stream
+                    </p>
+                  </div>
+                  <p data-testid="text-live-strip-downgrade-count" className="text-xs text-muted-foreground">
+                    {downgrades.length} rows
+                  </p>
+                </div>
+
+                <div className="divide-y divide-border max-h-[150px] overflow-auto">
+                  {downgrades.length === 0 ? (
+                    <div className="p-3">
+                      <p data-testid="text-live-strip-downgrade-empty" className="text-xs text-muted-foreground">
+                        {phase === "idle" ? "No rows yet." : "Streaming…"}
+                      </p>
+                    </div>
+                  ) : (
+                    downgrades.map((r) => (
+                      <button
+                        key={r.id}
+                        data-testid={`strip-downgrade-${r.id}`}
+                        className="w-full text-left px-3 py-2 hover:bg-secondary/20 transition-colors"
+                        onClick={() => jumpToEvidence(r.ref, r.id)}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p data-testid={`text-strip-downgrade-raw-${r.id}`} className="text-xs font-medium truncate">
+                              {r.raw}
+                            </p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <p data-testid={`text-strip-downgrade-page-${r.id}`} className="text-[11px] text-muted-foreground">
+                                p.{r.ref.page}
+                              </p>
+                              {r.status === "Needs Review" && (
+                                <Badge
+                                  data-testid={`badge-strip-downgrade-review-${r.id}`}
+                                  variant="outline"
+                                  className="text-[10px] bg-amber-500/10 text-amber-700 border-amber-500/20"
+                                >
+                                  Needs Review
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p data-testid={`text-strip-downgrade-volume-${r.id}`} className="font-mono text-xs">
+                              {r.volume}
+                            </p>
+                            <p data-testid={`text-strip-downgrade-lost-${r.id}`} className="font-mono text-[11px] text-muted-foreground mt-0.5">
+                              {r.revenueLost ?? "—"}
+                            </p>
+                          </div>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          {/* Main workspace below */}
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+            <div className="xl:col-span-3 space-y-6">
             <Card className="p-5 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -1106,6 +1261,8 @@ export default function Dashboard() {
               </div>
             </Card>
           </div>
+
+          {/* Right results table removed (now full-width strip above) */}
 
           <div className="xl:col-span-3 space-y-6">
             <Card className="p-5 shadow-sm">
