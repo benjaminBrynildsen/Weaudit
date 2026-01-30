@@ -544,9 +544,6 @@ export default function Dashboard() {
                   >
                     Downgrades
                   </Badge>
-                  <p data-testid="text-live-strip-downgrade-title" className="text-xs font-semibold truncate">
-                    MADR-style stream
-                  </p>
                 </div>
                 <p data-testid="text-live-strip-downgrade-count" className="text-xs text-muted-foreground">
                   {downgrades.length} rows
