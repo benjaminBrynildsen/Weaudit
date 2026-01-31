@@ -29,7 +29,7 @@ export default function Landing() {
             <div className="w-10 h-10 rounded-xl bg-sidebar-primary flex items-center justify-center text-sidebar-primary-foreground">
               <ShieldCheck className="w-6 h-6" />
             </div>
-            <span>AutoAudit</span>
+            <span>We Audit</span>
           </div>
 
           <h1 className="font-heading text-4xl lg:text-6xl font-bold leading-tight mb-6">
