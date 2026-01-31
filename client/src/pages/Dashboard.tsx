@@ -1118,6 +1118,16 @@ export default function Dashboard() {
                 Mark complete
               </Button>
               <Button
+                data-testid="button-generate-report"
+                className="bg-foreground text-background hover:bg-foreground/90"
+                onClick={() => {
+                  window.location.href = "/report";
+                }}
+              >
+                <FileText className="w-4 h-4 mr-2" />
+                Generate report
+              </Button>
+              <Button
                 data-testid="button-review-results"
                 variant="secondary"
                 onClick={() => {
