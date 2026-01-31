@@ -659,8 +659,8 @@ export default function Dashboard() {
           </div>
         </Card>
 
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-          <div className="xl:col-span-8 space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div className="lg:col-span-4 space-y-6">
             <Card className="overflow-hidden shadow-sm">
               <div className="p-4 sm:p-5 border-b border-border bg-secondary/10">
                 <div className="flex items-center justify-between gap-3">
@@ -1084,7 +1084,7 @@ export default function Dashboard() {
             </Card>
           </div>
 
-          <div className="xl:col-span-8 space-y-6">
+          <div className="lg:col-span-8 space-y-6">
             <Card className="overflow-hidden shadow-sm">
               <div className="p-4 sm:p-5 border-b border-border bg-secondary/10">
                 <div className="flex items-center justify-between gap-3">
