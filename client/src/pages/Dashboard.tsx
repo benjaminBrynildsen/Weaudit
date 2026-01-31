@@ -662,68 +662,71 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-4 space-y-6">
             <Card className="overflow-hidden shadow-sm">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p data-testid="text-leftpanel-title" className="font-semibold">
-                    Live Extracted Data
-                  </p>
-                  <p data-testid="text-leftpanel-subtitle" className="text-xs text-muted-foreground mt-1">
-                    Value • confidence • page ref • override.
-                  </p>
+              <div className="p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p data-testid="text-leftpanel-title" className="font-semibold">
+                      Live Extracted Data
+                    </p>
+                    <p data-testid="text-leftpanel-subtitle" className="text-xs text-muted-foreground mt-1">
+                      Value • confidence • page ref • override.
+                    </p>
+                  </div>
+                  <Badge data-testid="badge-prototype" variant="outline" className="text-xs text-muted-foreground">
+                    Prototype
+                  </Badge>
                 </div>
-                <Badge data-testid="badge-prototype" variant="outline" className="text-xs text-muted-foreground">
-                  Prototype
-                </Badge>
-              </div>
 
-              <Separator className="my-4" />
+                <Separator className="my-4" />
 
-              <div className="space-y-5">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-muted-foreground">Identity</p>
-                    <Badge data-testid="badge-identity" variant="outline" className="text-[11px] text-muted-foreground">
-                      Phase B
-                    </Badge>
+                <div className="space-y-5">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold text-muted-foreground">Identity</p>
+                      <Badge data-testid="badge-identity" variant="outline" className="text-[11px] text-muted-foreground">
+                        Phase B
+                      </Badge>
+                    </div>
+
+                    {["processor_detected", "company_dba", "mid", "statement_period"].map((k) => {
+                      const key = k as FieldKey;
+                      const f = fields[key];
+                      return (
+                        <div key={k} className="rounded-lg border border-border bg-secondary/10 p-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p data-testid={`text-field-label-${k}`} className="text-[11px] text-muted-foreground">
+                                {f.label}
+                              </p>
+                              <p data-testid={`text-field-value-${k}`} className="font-mono text-sm mt-1 truncate">
+                                {f.override?.trim() ? f.override : f.value ?? "—"}
+                              </p>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <button
+                                data-testid={`button-field-jump-${k}`}
+                                className="text-[11px] text-primary hover:underline"
+                                onClick={() => (f.page ? jumpToEvidence({ page: f.page, box: { x: 12, y: 20, w: 58, h: 8 } }, k) : null)}
+                              >
+                                {f.page ? `p.${f.page}` : ""}
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="mt-2">
+                            <Input
+                              data-testid={`input-field-override-${k}`}
+                              value={f.override ?? ""}
+                              onChange={(e) => setFields((prev) => ({ ...prev, [key]: { ...prev[key], override: e.target.value } }))}
+                              placeholder="Override…"
+                              className="h-9 font-mono"
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
 
-                  {["processor_detected", "company_dba", "mid", "statement_period"].map((k) => {
-                    const key = k as FieldKey;
-                    const f = fields[key];
-                    return (
-                      <div key={k} className="rounded-lg border border-border bg-secondary/10 p-3">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <p data-testid={`text-field-label-${k}`} className="text-[11px] text-muted-foreground">
-                              {f.label}
-                            </p>
-                            <p data-testid={`text-field-value-${k}`} className="font-mono text-sm mt-1 truncate">
-                              {f.override?.trim() ? f.override : f.value ?? "—"}
-                            </p>
-                          </div>
-                          <div className="shrink-0 text-right">
-                            <button
-                              data-testid={`button-field-jump-${k}`}
-                              className="text-[11px] text-primary hover:underline"
-                              onClick={() => (f.page ? jumpToEvidence({ page: f.page, box: { x: 12, y: 20, w: 58, h: 8 } }, k) : null)}
-                            >
-                              {f.page ? `p.${f.page}` : ""}
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="mt-2">
-                          <Input
-                            data-testid={`input-field-override-${k}`}
-                            value={f.override ?? ""}
-                            onChange={(e) => setFields((prev) => ({ ...prev, [key]: { ...prev[key], override: e.target.value } }))}
-                            placeholder="Override…"
-                            className="h-9 font-mono"
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
                 </div>
 
                 <div className="space-y-3">
