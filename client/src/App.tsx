@@ -11,6 +11,7 @@ import History from "@/pages/History";
 import Reports from "@/pages/Reports";
 import Settings from "@/pages/Settings";
 import Review from "./pages/Review";
+import Report from "@/pages/Report";
 
 function Router() {
   return (
@@ -20,6 +21,7 @@ function Router() {
       <Route path="/upload" component={Upload} />
       <Route path="/history" component={History} />
       <Route path="/reports" component={Reports} />
+      <Route path="/report" component={Report} />
       <Route path="/review" component={Review} />
       <Route path="/settings" component={Settings} />
       <Route component={NotFound} />

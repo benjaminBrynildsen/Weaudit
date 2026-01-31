@@ -335,6 +335,27 @@ export default function History() {
                           >
                             <ExternalLink className="w-4 h-4 mr-2" /> Open
                           </DropdownMenuItem>
+
+                          <DropdownMenuItem
+                            data-testid={`action-download-audit-${r.id}`}
+                            onClick={() => {
+                              const qs = new URLSearchParams({
+                                auditId: r.id,
+                                client: r.client,
+                                processor: r.processor,
+                                statementMonth: r.statementMonth,
+                                mid: r.mid,
+                                status: r.status,
+                                nonPci: String(r.nonPci),
+                                downgrades: String(r.downgrades),
+                                estRecovery: String(r.estRecovery),
+                              });
+                              window.location.href = `/report?${qs.toString()}`;
+                            }}
+                          >
+                            <FileText className="w-4 h-4 mr-2" /> Download audit
+                          </DropdownMenuItem>
+
                           <DropdownMenuItem data-testid={`action-duplicate-audit-${r.id}`}>Duplicate (mock)</DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem data-testid={`action-delete-audit-${r.id}`} className="text-destructive">
