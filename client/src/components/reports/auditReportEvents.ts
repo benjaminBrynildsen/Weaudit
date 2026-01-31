@@ -4,7 +4,7 @@ type OpenEventDetail = {
   data: AuditReportData;
 };
 
-const EVENT_NAME = "weaudit:open-report";
+const EVENT_NAME = "autoaudit:open-report";
 
 export function openAuditReport(data: AuditReportData) {
   window.dispatchEvent(new CustomEvent<OpenEventDetail>(EVENT_NAME, { detail: { data } }));

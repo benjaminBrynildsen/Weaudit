@@ -47,7 +47,7 @@ function Sidebar({ collapsed }: SidebarProps) {
           <div className="w-8 h-8 rounded-lg bg-sidebar-primary flex items-center justify-center text-sidebar-primary-foreground">
             <ShieldCheck className="w-5 h-5" />
           </div>
-          {!collapsed && <span>We Audit</span>}
+          {!collapsed && <span>AutoAudit</span>}
         </div>
       </div>
 
