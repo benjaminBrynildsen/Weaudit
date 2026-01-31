@@ -4,8 +4,7 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { Download, FileText, ArrowLeft } from "lucide-react";
+import { Download, ArrowLeft } from "lucide-react";
 import { PDFViewer, pdf } from "@react-pdf/renderer";
 import AuditReportDocument from "@/components/reports/AuditReportDocument";
 import { makeMockAuditReport } from "@/lib/mockAuditReport";
@@ -85,7 +84,43 @@ export default function Report() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-5">
+      <div className="space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <Button
+                data-testid="button-report-back"
+                variant="ghost"
+                size="sm"
+                className="-ml-2 text-muted-foreground hover:text-foreground"
+                onClick={() => setLocation("/history")}
+              >
+                <ArrowLeft className="w-4 h-4 mr-2" /> Back
+              </Button>
+            </div>
+            <h1 data-testid="text-report-page-title" className="text-3xl font-bold font-heading tracking-tight">
+              Audit report
+            </h1>
+            <p data-testid="text-report-page-subtitle" className="text-muted-foreground mt-1">
+              Edit fields on the left and see the PDF update instantly.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Badge data-testid="badge-report-page-status" variant="outline" className="text-xs text-muted-foreground">
+              {draft.status}
+            </Badge>
+            <Button
+              data-testid="button-report-download"
+              onClick={download}
+              disabled={downloading}
+              className="shadow-lg shadow-primary/15"
+            >
+              <Download className="w-4 h-4 mr-2" /> {downloading ? "Preparing…" : "Download"}
+            </Button>
+          </div>
+        </div>
+
         <Card className="p-4">
           <div className="grid gap-4 md:grid-cols-12">
             <div className="md:col-span-5">
@@ -234,41 +269,6 @@ export default function Report() {
             </div>
           </div>
         </Card>
-        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <Button
-                data-testid="button-report-back"
-                variant="ghost"
-                size="sm"
-                className="-ml-2 text-muted-foreground hover:text-foreground"
-                onClick={() => setLocation("/history")}
-              >
-                <ArrowLeft className="w-4 h-4 mr-2" /> Back
-              </Button>
-            </div>
-            <h1 data-testid="text-report-page-title" className="text-3xl font-bold font-heading tracking-tight">
-              Audit report
-            </h1>
-            <p data-testid="text-report-page-subtitle" className="text-muted-foreground mt-1">
-              Preview the PDF in-app, then download.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Badge data-testid="badge-report-page-status" variant="outline" className="text-xs text-muted-foreground">
-              {draft.status}
-            </Badge>
-            <Button
-              data-testid="button-report-download"
-              onClick={download}
-              disabled={downloading}
-              className="shadow-lg shadow-primary/15"
-            >
-              <Download className="w-4 h-4 mr-2" /> {downloading ? "Preparing…" : "Download"}
-            </Button>
-          </div>
-        </div>
       </div>
     </DashboardLayout>
   );
