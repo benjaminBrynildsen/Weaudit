@@ -416,7 +416,7 @@ export default function Dashboard() {
               </div>
 
               <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:mr-auto">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <Label className="text-[11px] text-muted-foreground">Processor family</Label>
                     <Select value={processorFamily} onValueChange={(v) => setProcessorFamily(v as ProcessorFamily)}>
@@ -453,34 +453,15 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                  <div className="flex items-center gap-2">
-                    <Button data-testid="button-upload-pdf" variant="outline" className="h-10" onClick={startScan}>
-                      <UploadCloud className="w-4 h-4 mr-2" />
-                      Upload PDF
-                    </Button>
-                    <span data-testid="text-step-arrow-1" className="hidden sm:inline text-muted-foreground/70">
-                      →
-                    </span>
-                  </div>
+                <div className="flex items-center gap-2">
+                  <Button data-testid="button-upload-pdf" variant="outline" className="h-10" onClick={startScan}>
+                    <UploadCloud className="w-4 h-4 mr-2" />
+                    Upload PDF
+                  </Button>
 
-                  <div className="flex items-center gap-2">
-                    <Button data-testid="button-start-scan" className="h-10 shadow-sm" onClick={startScan} disabled={isScanning}>
-                      {isScanning ? <Pause className="w-4 h-4 mr-2" /> : <Play className="w-4 h-4 mr-2" />}
-                      {isScanning ? "Scanning" : "Start scan"}
-                    </Button>
-                    <span data-testid="text-step-arrow-2" className="hidden sm:inline text-muted-foreground/70">
-                      →
-                    </span>
-                  </div>
-
-                  <Button
-                    data-testid="button-generate-pdf"
-                    variant="outline"
-                    className="h-10 text-muted-foreground"
-                    disabled={status !== "Complete"}
-                  >
-                    Generate PDF
+                  <Button data-testid="button-start-scan" className="h-10 shadow-sm" onClick={startScan} disabled={isScanning}>
+                    {isScanning ? <Pause className="w-4 h-4 mr-2" /> : <Play className="w-4 h-4 mr-2" />}
+                    {isScanning ? "Scanning" : "Start scan"}
                   </Button>
 
                   <Button data-testid="button-reset-scan" variant="ghost" className="h-10" onClick={resetScan}>
