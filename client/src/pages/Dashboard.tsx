@@ -1233,7 +1233,7 @@ export default function Dashboard() {
             </Card>
           </div>
 
-          <div className="xl:col-span-8 space-y-6">
+          <div className="hidden xl:block xl:col-span-8 space-y-6">
             <Card className="overflow-hidden shadow-sm">
               <div className="p-4 sm:p-5 border-b border-border bg-secondary/10">
                 <div className="flex items-center justify-between gap-3">
