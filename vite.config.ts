@@ -35,6 +35,10 @@ export default defineConfig({
       plugins: [],
     },
   },
+  define: {
+    // @react-pdf/renderer checks process.env.NODE_ENV at runtime
+    "process.env.NODE_ENV": JSON.stringify(process.env.NODE_ENV || "development"),
+  },
   root: path.resolve(import.meta.dirname, "client"),
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
@@ -43,6 +47,12 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     allowedHosts: true,
+    proxy: {
+      "/api": {
+        target: "http://localhost:5000",
+        changeOrigin: true,
+      },
+    },
     fs: {
       strict: true,
       deny: ["**/.*"],
