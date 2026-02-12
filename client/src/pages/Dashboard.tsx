@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import { useUploadStatement, useTriggerScan, useAuditStatus, useAudit, useFindings } from "@/lib/api";
 import { useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
@@ -197,6 +198,7 @@ export default function Dashboard() {
 
   // API hooks
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const uploadMutation = useUploadStatement();
   const triggerScan = useTriggerScan();
   const { data: auditStatusData } = useAuditStatus(currentAuditId, isScanning);
@@ -493,6 +495,44 @@ export default function Dashboard() {
     startSimulatedScan();
   }
 
+  async function handleGatewayLevelChange(newLevel: "II" | "III") {
+    // Always update local state (used for new uploads)
+    setLevel(newLevel);
+
+    // If there's an existing audit, also update it via API
+    if (currentAuditId) {
+      try {
+        await fetch(`/api/audits/${currentAuditId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ gatewayLevel: newLevel }),
+        });
+
+        // Invalidate audit query to refresh data
+        await queryClient.invalidateQueries({ queryKey: ["/api/audits", currentAuditId] });
+
+        // Show success toast
+        toast({
+          title: "Gateway Level Updated",
+          description: `Changed to Level ${newLevel}. Consider re-scanning to update findings.`,
+        });
+      } catch (error) {
+        console.error("Failed to update gateway level:", error);
+        toast({
+          title: "Update Failed",
+          description: "Could not update gateway level. Please try again.",
+          variant: "destructive",
+        });
+      }
+    } else {
+      // No audit loaded yet - just update local state for next upload
+      toast({
+        title: "Gateway Level Set",
+        description: `Level ${newLevel} will be used for the next upload.`,
+      });
+    }
+  }
+
   // React to polling status changes from the API
   useEffect(() => {
     if (!auditStatusData || !currentAuditId) return;
@@ -648,6 +688,22 @@ export default function Dashboard() {
               </div>
 
               <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs text-muted-foreground whitespace-nowrap">Gateway Level:</Label>
+                  <Select
+                    value={auditData?.gatewayLevel || level}
+                    onValueChange={handleGatewayLevelChange}
+                  >
+                    <SelectTrigger data-testid="select-gateway-level" className="h-10 w-[140px]">
+                      <SelectValue placeholder="Select level" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="II">Level II</SelectItem>
+                      <SelectItem value="III">Level III</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 <input
                   type="file"
                   ref={fileInputRef}
@@ -726,17 +782,6 @@ export default function Dashboard() {
                     className="h-9 border-0 bg-transparent px-0 focus-visible:ring-0 focus-visible:ring-offset-0"
                     placeholder="Search extracted fields & descriptors…"
                   />
-                </div>
-
-                <div className="hidden md:flex items-center gap-2 text-xs text-muted-foreground">
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1">
-                      <span className="inline-block w-2.5 h-2.5 rounded-sm bg-red-500" /> Non-PCI
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <span className="inline-block w-2.5 h-2.5 rounded-sm bg-yellow-400" /> Downgrade
-                    </span>
-                  </div>
                 </div>
               </div>
             </div>
@@ -1087,7 +1132,6 @@ export default function Dashboard() {
                       );
                     })}
                   </div>
-
                 </div>
 
                 <div className="space-y-3">

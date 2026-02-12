@@ -1,6 +1,7 @@
 import type { NormalizedLine } from "./normalizer";
 import type { DowngradeRule, Finding, FindingType } from "../storage";
 import { INTERCHANGE_BENCHMARKS, type InterchangeBenchmark } from "./benchmarks";
+import { expandAbbreviations } from "./abbreviations";
 
 // ── Non-PCI Detection ────────────────────────────────────────────────────────
 
@@ -72,32 +73,64 @@ export function detectNonPci(lines: NormalizedLine[]): { results: DetectionResul
 const CARDCONNECT_ALIASES: [RegExp, string][] = [
   // Visa Business Card with Tier/Level (note: "BUSINESS CARD" not just "BUS")
   [/VI[-\s]BUSINESS\s+CARD\s+TR(\d+)\s+LEVEL\s+(\d+)/i, "VISA BUS T$1 LEVEL $2"],
+  [/VI[-\s]BUS\s+CARD\s+TR(\d+)\s+LEVEL\s+(\d+)/i, "VISA BUS T$1 LEVEL $2"],
+
+  // Business Tier + Product patterns (NEW)
+  [/VI[-\s]US\s+BUS\s+TR(\d+)\s+PRD\s+(\d+)/i, "VISA BUS T$1 PRODUCT $2"],
+  [/VI[-\s]BUSINESS\s+TR(\d+)\s+PRODUCT\s+(\d+)/i, "VISA BUS T$1 PRODUCT $2"],
+
   // Visa Purchasing
   [/VI[-\s]PURCHASING\s+CREDIT\s+PRODUCT\s+(\d+)/i, "VISA PURCHASING PRODUCT $1"],
   [/VI[-\s]PURCHASING\s+CARD\s+PRESENT/i, "VISA PURCHASING CARD PRESENT"],
+  [/VI[-\s]PURCHASING\s+CARD\s+LEVEL\s+(\d+)/i, "VISA PURCHASING LEVEL $1"],
+
   // Visa Corporate
   [/VI[-\s]CORP(?:ORATE)?\s+PRODUCT\s+(\d+)/i, "VISA CORP PRODUCT $1"],
+  [/VI[-\s]CORPORATE\s+CARD\s+LEVEL\s+(\d+)/i, "VISA CORPORATE LEVEL $1"],
+  [/VI[-\s]CORP\s+CARD\s+LEVEL\s+(\d+)/i, "VISA CORPORATE LEVEL $1"],
+  [/VI[-\s]CORPORATE\s+CREDIT\s+PRODUCT\s+(\d+)/i, "VISA CORPORATE PRODUCT $1"],
+
   // Visa Non-Qual variations
   [/VI[-\s]NON\s+QUAL\s+CONSUMER\s+CR/i, "VI NON QUAL CONSUMER CR"],
-  [/VI[-\s]NON\s+QUAL\s+BUS\s+CR/i, "VI NON QUAL BUS CR"],
+  [/VI[-\s]NON\s+QUAL\s+BUS/i, "VISA NON QUALIFIED BUSINESS"],
   [/VI[-\s]NON\s+QUAL\s+CORP\s+CR/i, "VI NON QUAL CORP CR"],
   [/VI[-\s]NON\s+QUAL\s+PURCH\s+CR/i, "VI NON QUAL PURCH CR"],
+
   // Visa Standard
   [/VI[-\s]STANDARD/i, "VISA STANDARD"],
+
   // Visa EIRF
   [/VI[-\s]EIRF/i, "EIRF"],
+
   // Visa CNP (Card Not Present)
+  [/VI[-\s]CPS\s+CNP\s+\(([^)]+)\)/i, "VISA CPS CARD NOT PRESENT $1"],
+  [/VI[-\s]CNP\s+P(\d+)\s+/i, "VISA CARD NOT PRESENT PRODUCT $1"],
   [/VI[-\s]CNP/i, "VI CNP"],
+
+  // Visa Regulated patterns
+  [/VI[-\s]US\s+REGULATED\s+COMM/i, "VISA US REGULATED COMMERCIAL"],
+  [/VI[-\s]REG\s+CONSUMER/i, "VISA REGULATED CONSUMER"],
+
   // Mastercard Business Levels
-  [/MC[-\s]BUS(?:INESS)?\s+LEVEL\s+(\d+)\s+DATA\s+RATE/i, "MC BUS LEVEL $1 DATA RATE"],
+  [/MC[-\s]BUS(?:INESS)?\s+LEVEL\s+(\d+)\s+DATA\s+RATE\s+(I+|1)/i, "MASTERCARD BUS LEVEL $1 DATA RATE 1"],
+  [/MC[-\s]BUS(?:INESS)?\s+LEVEL\s+(\d+)\s+DATA\s+RATE\s+(II+|2)/i, "MASTERCARD BUS LEVEL $1 DATA RATE 2"],
   [/MC[-\s]BUS(?:INESS)?\s+LEVEL\s+(\d+)\s+STANDARD/i, "MC BUS LEVEL $1 STANDARD"],
+
   // Mastercard Corporate
+  [/MC[-\s]CORP(?:ORATE)?\s+DATA\s+RATE\s+(I+|1)\s+\(US\)\s+(BUS|CORP|PUR)/i, "MASTERCARD CORP DATA RATE 1 US $2"],
   [/MC[-\s]CORP(?:ORATE)?\s+DATA\s+RATE/i, "MC CORP DATA RATE"],
   [/MC[-\s]CORP(?:ORATE)?\s+CARD\s+STD/i, "MC CORP CARD STD"],
+
+  // Mastercard Commercial
+  [/MC[-\s]COMML?\s+DATA\s+R(?:ATE|T)\s+(I+|1)/i, "MASTERCARD COMMERCIAL DATA RATE 1"],
+  [/MC[-\s]COM\s+DATA\s+RATE\s+(I+|1)/i, "MASTERCARD COMMERCIAL DATA RATE 1"],
+
   // Mastercard Purchasing
   [/MC[-\s]PUR(?:CHASING)?\s+CARD\s+STD/i, "MC PUR CARD STD"],
+
   // Mastercard Fleet
   [/MC[-\s]FLEET\s+STD/i, "MC FLEET STD"],
+
   // Mastercard High Value
   [/MC[-\s]HIGH\s+VAL(?:UE)?\s+MERIT/i, "MC HIGH VALUE"],
 ];
@@ -131,22 +164,30 @@ const ELAVON_ALIASES: [RegExp, string][] = [
 
 /** Expand processor-specific category names with standard equivalents for keyword matching. */
 function expandProcessorAliases(raw: string, processorName?: string): string {
-  let expanded = raw;
+  // Step 1: Apply global abbreviation expansion (NEW)
+  let expanded = expandAbbreviations(raw);
+
+  // Step 2: Apply processor-specific aliases (EXISTING)
+  if (!processorName) return expanded;
+
+  const normalized = processorName.toLowerCase();
 
   // Check CardConnect
-  if (processorName && /cardconnect|cardpointe/i.test(processorName)) {
+  if (/cardconnect|cardpointe/i.test(normalized)) {
     for (const [pattern, standard] of CARDCONNECT_ALIASES) {
-      if (pattern.test(raw)) {
-        expanded += " " + standard;
+      if (pattern.test(expanded)) {
+        const aliased = expanded.replace(pattern, standard);
+        expanded = `${expanded} ${aliased}`;
       }
     }
   }
 
   // Check Elavon
-  if (processorName && /elavon|us\s*bank/i.test(processorName)) {
+  if (/elavon|us\s*bank/i.test(normalized)) {
     for (const [pattern, standard] of ELAVON_ALIASES) {
-      if (pattern.test(raw)) {
-        expanded += " " + standard;
+      if (pattern.test(expanded)) {
+        const aliased = expanded.replace(pattern, standard);
+        expanded = `${expanded} ${aliased}`;
       }
     }
   }
@@ -182,7 +223,18 @@ export function detectDowngrades(
 ): { results: DetectionResult[]; matchedIndices: Set<number> } {
   const results: DetectionResult[] = [];
   const matchedIndices = new Set<number>();
-  const enabledRules = rules.filter((r) => r.enabled);
+
+  // Sort rules by keyword count (descending) - more specific rules first
+  const enabledRules = rules
+    .filter((r) => r.enabled)
+    .sort((a, b) => b.keywords.length - a.keywords.length);
+
+  // DEBUG: Log detection parameters
+  console.log(`[DEBUG] detectDowngrades called:`);
+  console.log(`  - Lines to scan: ${lines.length}`);
+  console.log(`  - Enabled rules: ${enabledRules.length}`);
+  console.log(`  - Processor: ${processorName || "unknown"}`);
+  console.log(`  - Excluded indices: ${excludeIndices.size}`);
 
   for (let i = 0; i < lines.length; i++) {
     if (excludeIndices.has(i)) continue;
@@ -192,9 +244,27 @@ export function detectDowngrades(
     const matchText = expandProcessorAliases(line.raw, processorName);
     const lineTokens = tokenize(matchText);
 
+    // DEBUG: Log lines that look like they might be downgrades
+    if (line.raw.includes("BUS") || line.raw.includes("TR") || line.raw.includes("PRD")) {
+      console.log(`[DEBUG] Checking potential downgrade line ${i}:`);
+      console.log(`  Raw: "${line.raw}"`);
+      console.log(`  Expanded: "${matchText.substring(0, 150)}..."`);
+    }
+
     for (const rule of enabledRules) {
+      // Brand check: Ensure line brand matches rule brand
+      const lineBrand = line.raw.match(/^(VI|MC|DS)/i)?.[1]?.toUpperCase();
+      const ruleBrand = rule.brand === "V" ? "VI" : rule.brand === "M" ? "MC" : rule.brand === "D" ? "DS" : null;
+
+      if (lineBrand && ruleBrand && lineBrand !== ruleBrand) {
+        continue; // Skip this rule, brand doesn't match
+      }
+
       if (keywordsMatch(lineTokens, rule.keywords)) {
         matchedIndices.add(i);
+
+        // DEBUG: Log matches
+        console.log(`[DEBUG] ✅ MATCH on line ${i}: ${rule.name} (brand: ${rule.brand})`);
 
         const actualRate = line.rate || rule.rate;
         const rateSpread = Math.max(0, actualRate - rule.targetRate);
@@ -215,6 +285,19 @@ export function detectDowngrades(
           } else {
             revenueLost = line.amount * rateSpread / actualRate;
           }
+        }
+
+        // Skip findings with zero or negligible spread (already at optimal rate)
+        if (rateSpread < 0.01) {
+          console.log(`[DEBUG] ⊘ Skipping ${rule.name} on line ${i}: spread $${rateSpread.toFixed(4)} too small`);
+          break; // Don't check more rules for this line
+        }
+
+        // Skip informational rules from primary audit (STD-only categories)
+        // These are still detected but excluded from primary audit results
+        if (rule.informational) {
+          console.log(`[DEBUG] ℹ️ Skipping informational rule ${rule.name} on line ${i}: excluded from primary audit`);
+          break; // Don't check more rules for this line
         }
 
         results.push({
