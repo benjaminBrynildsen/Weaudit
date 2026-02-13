@@ -12,6 +12,7 @@ import Reports from "@/pages/Reports";
 import Settings from "@/pages/Settings";
 import Review from "./pages/Review";
 import Report from "@/pages/Report";
+import Companies from "@/pages/Companies";
 
 function Router() {
   return (
@@ -22,6 +23,7 @@ function Router() {
       <Route path="/history" component={History} />
       <Route path="/reports" component={Reports} />
       <Route path="/report" component={Report} />
+      <Route path="/companies" component={Companies} />
       <Route path="/review" component={Review} />
       <Route path="/settings" component={Settings} />
       <Route component={NotFound} />

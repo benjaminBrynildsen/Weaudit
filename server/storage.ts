@@ -16,6 +16,7 @@ import {
   TABLE_PROCESSOR_ISOS,
   TABLE_UNKNOWN_FEES,
   TABLE_NOTICES,
+  TABLE_COMPANIES,
 } from "./db/client";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -118,6 +119,40 @@ export interface Notice {
   createdAt: string;
 }
 
+export interface Company {
+  companyId: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  auditLevel: string;
+  auditor: string;
+  paymentMethod: string;
+  csm: string;
+  csmPhone: string;
+  sendTo: string;
+  discountRate: number;
+  transactionFee: number;
+  amexFee: number;
+  statementFee: number;
+  avsFee: number;
+  regFee: number;
+  chargebackFee: number;
+  authFee: number;
+  annualFee: number;
+  monitoringFee: number;
+  pciFee: number;
+  gateway: string;
+  gatewayFee: number;
+  gatewayTransFee: number;
+  processor: string;
+  statementObtainMethod: string;
+  password: string;
+  validationStatus: string;
+  riskLevel: string;
+  adjustedEffectiveRate: number;
+  actualOldEffectiveRate: number;
+}
+
 // ── Interface ────────────────────────────────────────────────────────────────
 
 export interface IStorage {
@@ -165,6 +200,13 @@ export interface IStorage {
   // Notices
   createNotice(data: Omit<Notice, "noticeId" | "createdAt">): Promise<Notice>;
   getNoticesByAudit(auditId: string): Promise<Notice[]>;
+
+  // Companies
+  listCompanies(): Promise<Company[]>;
+  getCompany(companyId: string): Promise<Company | undefined>;
+  createCompany(data: Omit<Company, "companyId" | "createdAt" | "updatedAt">): Promise<Company>;
+  updateCompany(companyId: string, patch: Partial<Company>): Promise<Company | undefined>;
+  deleteCompany(companyId: string): Promise<void>;
 }
 
 // ── DynamoDB Implementation ──────────────────────────────────────────────────
@@ -392,6 +434,37 @@ export class DynamoStorage implements IStorage {
       })
     );
     return (res.Items || []) as Notice[];
+  }
+  // ── Companies ──
+
+  async listCompanies(): Promise<Company[]> {
+    const res = await ddb.send(new ScanCommand({ TableName: TABLE_COMPANIES }));
+    const items = (res.Items || []) as Company[];
+    return items.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async getCompany(companyId: string): Promise<Company | undefined> {
+    const res = await ddb.send(new GetCommand({ TableName: TABLE_COMPANIES, Key: { companyId } }));
+    return res.Item as Company | undefined;
+  }
+
+  async createCompany(data: Omit<Company, "companyId" | "createdAt" | "updatedAt">): Promise<Company> {
+    const now = new Date().toISOString();
+    const company: Company = { ...data, companyId: randomUUID(), createdAt: now, updatedAt: now };
+    await ddb.send(new PutCommand({ TableName: TABLE_COMPANIES, Item: company }));
+    return company;
+  }
+
+  async updateCompany(companyId: string, patch: Partial<Company>): Promise<Company | undefined> {
+    const existing = await this.getCompany(companyId);
+    if (!existing) return undefined;
+    const merged = { ...existing, ...patch, companyId, updatedAt: new Date().toISOString() };
+    await ddb.send(new PutCommand({ TableName: TABLE_COMPANIES, Item: merged }));
+    return merged;
+  }
+
+  async deleteCompany(companyId: string): Promise<void> {
+    await ddb.send(new DeleteCommand({ TableName: TABLE_COMPANIES, Key: { companyId } }));
   }
 }
 

@@ -103,6 +103,12 @@ const tables: CreateTableCommandInput[] = [
     ],
     BillingMode: "PAY_PER_REQUEST",
   },
+  {
+    TableName: "weaudit-companies",
+    KeySchema: [{ AttributeName: "companyId", KeyType: "HASH" }],
+    AttributeDefinitions: [{ AttributeName: "companyId", AttributeType: "S" }],
+    BillingMode: "PAY_PER_REQUEST",
+  },
 ];
 
 async function tableExists(name: string): Promise<boolean> {
