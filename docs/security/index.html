@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WeAudit Security Overview</title>
+    <meta
+      name="description"
+      content="Security overview for WeAudit: encryption, access controls, secure SDLC, monitoring, and audit readiness."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./assets/styles.css" />
+  </head>
+  <body>
+    <div class="bg-glow bg-glow-top"></div>
+    <div class="bg-glow bg-glow-bottom"></div>
+
+    <header class="site-header container">
+      <div class="brand">
+        <span class="brand-mark"></span>
+        <span>WeAudit Security</span>
+      </div>
+      <a class="btn btn-outline" href="#contact">Security Review Packet</a>
+    </header>
+
+    <main>
+      <section class="hero container reveal">
+        <p class="kicker">Security Overview</p>
+        <h1>Enterprise trust, built into every layer.</h1>
+        <p class="hero-copy">
+          WeAudit protects sensitive merchant and audit data with defense-in-depth controls across infrastructure,
+          application architecture, and operational processes.
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="#controls">View Controls</a>
+          <a class="btn btn-ghost" href="#faq">Security FAQ</a>
+        </div>
+      </section>
+
+      <section class="stats container reveal" aria-label="Security highlights">
+        <article class="stat-card">
+          <h3><span data-count="24">24</span>/7</h3>
+          <p>Monitoring & alert visibility</p>
+        </article>
+        <article class="stat-card">
+          <h3><span data-count="3">3</span>-Layer</h3>
+          <p>Defense model: Infra, App, Ops</p>
+        </article>
+        <article class="stat-card">
+          <h3><span data-count="100">100</span>%</h3>
+          <p>Encryption in transit (TLS)</p>
+        </article>
+      </section>
+
+      <section id="controls" class="controls container">
+        <h2 class="reveal">Core Security Controls</h2>
+        <div class="control-grid">
+          <article class="control-card reveal">
+            <h3>Encryption</h3>
+            <p>Data is encrypted in transit and at rest using modern, industry-standard cryptographic controls.</p>
+          </article>
+          <article class="control-card reveal">
+            <h3>Access Control</h3>
+            <p>Role-scoped permissions, least-privilege principles, and strict credential handling policies.</p>
+          </article>
+          <article class="control-card reveal">
+            <h3>Secure SDLC</h3>
+            <p>Code review, dependency hygiene, and controlled release processes reduce risk before production.</p>
+          </article>
+          <article class="control-card reveal">
+            <h3>Audit Logging</h3>
+            <p>Operational events are logged for traceability, investigation support, and accountability.</p>
+          </article>
+          <article class="control-card reveal">
+            <h3>Infrastructure Hardening</h3>
+            <p>Environment isolation, hardened baselines, and active monitoring support resilient operations.</p>
+          </article>
+          <article class="control-card reveal">
+            <h3>Continuous Improvement</h3>
+            <p>Controls are reviewed and evolved regularly as requirements and threat landscapes change.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="faq" class="faq container reveal">
+        <h2>Security FAQ</h2>
+        <details>
+          <summary>Do you encrypt customer data?</summary>
+          <p>Yes. We apply encryption in transit and at rest to protect sensitive data throughout its lifecycle.</p>
+        </details>
+        <details>
+          <summary>How is access managed?</summary>
+          <p>Access is granted by role and business need only, following least-privilege principles.</p>
+        </details>
+        <details>
+          <summary>Can you support enterprise security reviews?</summary>
+          <p>Yes. We support customer security review workflows and can provide further documentation under NDA.</p>
+        </details>
+      </section>
+
+      <section id="contact" class="cta container reveal">
+        <h2>Need a full security packet for procurement?</h2>
+        <p>We can provide additional security documentation and review support for enterprise onboarding.</p>
+        <a class="btn btn-primary" href="mailto:security@weaudit.com">Contact Security Team</a>
+      </section>
+    </main>
+
+    <footer class="site-footer container">
+      <p>© <span id="year"></span> WeAudit. All rights reserved.</p>
+    </footer>
+
+    <script src="./assets/main.js"></script>
+  </body>
+</html>
