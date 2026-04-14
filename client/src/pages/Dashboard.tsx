@@ -40,7 +40,6 @@ import { useToast } from "@/hooks/use-toast";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
-import AuditCelebration from "@/components/AuditCelebration";
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
@@ -1585,19 +1584,6 @@ export default function Dashboard() {
           )}
         </DialogContent>
       </Dialog>
-
-      {/* Celebration animation on audit completion */}
-      <AuditCelebration
-        show={showCelebration}
-        onComplete={() => setShowCelebration(false)}
-        findingsCount={downgrades.length + nonPci.length}
-        savingsAmount={
-          downgrades.reduce((sum, d) => {
-            const lost = d.revenueLost ? parseFloat(d.revenueLost.replace(/[$,]/g, "")) : 0;
-            return sum + (isNaN(lost) ? 0 : lost);
-          }, 0)
-        }
-      />
     </DashboardLayout>
   );
 }
