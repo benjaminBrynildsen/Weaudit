@@ -28,3 +28,4 @@ export const TABLE_PROCESSOR_ISOS = "weaudit-processor-isos";
 export const TABLE_UNKNOWN_FEES = "weaudit-unknown-fees";
 export const TABLE_NOTICES = "weaudit-notices";
 export const TABLE_COMPANIES = "weaudit-companies";
+export const TABLE_USERS = "weaudit-users";

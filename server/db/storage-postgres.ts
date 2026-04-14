@@ -17,6 +17,7 @@ import {
   unknownFees as unknownFeesT,
   notices as noticesT,
   companies as companiesT,
+  users as usersT,
 } from "./schema";
 import type {
   Audit,
@@ -27,6 +28,7 @@ import type {
   UnknownFee,
   Notice,
   Company,
+  User,
   IStorage,
 } from "../storage-types";
 
@@ -263,6 +265,51 @@ export class PostgresStorage implements IStorage {
       .from(noticesT)
       .where(eq(noticesT.auditId, auditId));
     return rows.map((r) => stripNulls(r) as Notice);
+  }
+
+  // ── Users ──
+
+  async getUserByGoogleSub(googleSub: string): Promise<User | undefined> {
+    const rows = await this.db
+      .select()
+      .from(usersT)
+      .where(eq(usersT.googleSub, googleSub));
+    return rows[0] ? (stripNulls(rows[0]) as User) : undefined;
+  }
+
+  async getUserById(userId: string): Promise<User | undefined> {
+    const rows = await this.db
+      .select()
+      .from(usersT)
+      .where(eq(usersT.userId, userId));
+    return rows[0] ? (stripNulls(rows[0]) as User) : undefined;
+  }
+
+  async upsertUserByGoogleSub(
+    data: Omit<User, "userId" | "createdAt" | "lastLoginAt">,
+  ): Promise<User> {
+    const now = new Date().toISOString();
+    const existing = await this.getUserByGoogleSub(data.googleSub);
+    if (existing) {
+      // Refresh profile fields + lastLoginAt every time the user logs in.
+      const [row] = await this.db
+        .update(usersT)
+        .set({
+          email: data.email,
+          name: data.name,
+          picture: data.picture,
+          hd: data.hd,
+          lastLoginAt: now,
+        })
+        .where(eq(usersT.userId, existing.userId))
+        .returning();
+      return stripNulls(row) as User;
+    }
+    const [row] = await this.db
+      .insert(usersT)
+      .values({ ...data, createdAt: now, lastLoginAt: now })
+      .returning();
+    return stripNulls(row) as User;
   }
 
   // ── Companies ──

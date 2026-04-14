@@ -100,6 +100,17 @@ export interface Notice {
   createdAt: string;
 }
 
+export interface User {
+  userId: string;
+  googleSub: string;
+  email: string;
+  name: string;
+  picture?: string;
+  hd?: string;
+  createdAt: string;
+  lastLoginAt: string;
+}
+
 export interface Company {
   companyId: string;
   name: string;
@@ -179,6 +190,13 @@ export interface IStorage {
   // Notices
   createNotice(data: Omit<Notice, "noticeId" | "createdAt">): Promise<Notice>;
   getNoticesByAudit(auditId: string): Promise<Notice[]>;
+
+  // Users (authentication)
+  getUserByGoogleSub(googleSub: string): Promise<User | undefined>;
+  getUserById(userId: string): Promise<User | undefined>;
+  upsertUserByGoogleSub(
+    data: Omit<User, "userId" | "createdAt" | "lastLoginAt">,
+  ): Promise<User>;
 
   // Companies
   listCompanies(): Promise<Company[]>;

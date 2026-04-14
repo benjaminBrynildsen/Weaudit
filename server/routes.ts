@@ -3,9 +3,10 @@ import { createServer, type Server } from "http";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { storage } from "./storage";
+import { storage, getBackend } from "./storage";
 import { runAuditScan } from "./engine/runner";
 import { setupTables } from "./db/setup";
+import { requireAuth } from "./auth/middleware";
 
 const upload = multer({
   dest: path.resolve("uploads"),
@@ -21,12 +22,23 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  // Ensure DynamoDB tables exist on startup
-  try {
-    await setupTables();
-  } catch (e) {
-    console.warn("DynamoDB table setup warning (tables may already exist or DynamoDB Local not running):", (e as Error).message);
+  // Ensure DynamoDB tables exist on startup — only relevant when the
+  // DynamoDB backend is active. Skip entirely on Postgres so we don't
+  // log confusing AWS errors on Render.
+  if (getBackend() === "dynamo") {
+    try {
+      await setupTables();
+    } catch (e) {
+      console.warn(
+        "DynamoDB table setup warning (tables may already exist or DynamoDB Local not running):",
+        (e as Error).message,
+      );
+    }
   }
+
+  // Gate every /api/* route behind authentication. Unauthenticated
+  // requests get a 401 and the client redirects to /login.
+  app.use("/api", requireAuth);
 
   // ── Audits ──────────────────────────────────────────────────────────────────
 

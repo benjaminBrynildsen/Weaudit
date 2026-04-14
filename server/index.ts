@@ -1,7 +1,13 @@
 import express, { type Request, Response, NextFunction } from "express";
+import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
+import MemoryStore from "memorystore";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { configurePassport, passport } from "./auth/passport";
+import { registerAuthRoutes } from "./auth/routes";
+import { getPool } from "./db/pg";
 
 const app = express();
 const httpServer = createServer(app);
@@ -59,7 +65,68 @@ app.use((req, res, next) => {
   next();
 });
 
+// Liveness probe used by Render — always 200, no auth, no DB. Keep this
+// registered before any route that might redirect or require a session.
+app.get("/health", (_req, res) => {
+  res.json({ ok: true });
+});
+
 (async () => {
+  // ── Session + auth ─────────────────────────────────────────────────────────
+  const isProduction = process.env.NODE_ENV === "production";
+  // Render terminates TLS at the edge; Express needs to know it's behind a
+  // proxy so secure cookies work correctly.
+  if (isProduction) {
+    app.set("trust proxy", 1);
+  }
+
+  const sessionSecret = process.env.SESSION_SECRET;
+  if (!sessionSecret) {
+    console.warn(
+      "[auth] SESSION_SECRET is not set — falling back to a random value. " +
+        "Sessions will be invalidated on every restart. Set SESSION_SECRET " +
+        "in env to persist sessions across deploys.",
+    );
+  }
+
+  // Postgres session store when DATABASE_URL is available, in-memory
+  // fallback otherwise (e.g. local Dynamo-only dev).
+  let sessionStore: session.Store | undefined;
+  if (process.env.DATABASE_URL) {
+    const PgStore = connectPgSimple(session);
+    sessionStore = new PgStore({
+      pool: getPool(),
+      tableName: "session",
+      createTableIfMissing: true,
+    });
+  } else {
+    const MemoStore = MemoryStore(session);
+    sessionStore = new MemoStore({ checkPeriod: 1000 * 60 * 60 });
+  }
+
+  app.use(
+    session({
+      name: "weaudit.sid",
+      secret: sessionSecret || `dev-${Math.random()}`,
+      resave: false,
+      saveUninitialized: false,
+      store: sessionStore,
+      cookie: {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: isProduction,
+        maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+      },
+    }),
+  );
+
+  configurePassport();
+  app.use(passport.initialize());
+  app.use(passport.session());
+
+  // Mount auth routes before /api so /auth/* isn't behind requireAuth.
+  registerAuthRoutes(app);
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

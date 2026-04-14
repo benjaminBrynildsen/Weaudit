@@ -22,6 +22,7 @@ import {
   TABLE_UNKNOWN_FEES,
   TABLE_NOTICES,
   TABLE_COMPANIES,
+  TABLE_USERS,
 } from "./client";
 import type {
   Audit,
@@ -32,6 +33,7 @@ import type {
   UnknownFee,
   Notice,
   Company,
+  User,
   IStorage,
 } from "../storage-types";
 
@@ -258,6 +260,36 @@ export class DynamoStorage implements IStorage {
       })
     );
     return (res.Items || []) as Notice[];
+  }
+
+  // ── Users ──
+
+  async getUserByGoogleSub(googleSub: string): Promise<User | undefined> {
+    const res = await ddb.send(
+      new ScanCommand({
+        TableName: TABLE_USERS,
+        FilterExpression: "googleSub = :sub",
+        ExpressionAttributeValues: { ":sub": googleSub },
+      }),
+    );
+    return (res.Items?.[0] as User | undefined) ?? undefined;
+  }
+
+  async getUserById(userId: string): Promise<User | undefined> {
+    const res = await ddb.send(new GetCommand({ TableName: TABLE_USERS, Key: { userId } }));
+    return res.Item as User | undefined;
+  }
+
+  async upsertUserByGoogleSub(
+    data: Omit<User, "userId" | "createdAt" | "lastLoginAt">,
+  ): Promise<User> {
+    const now = new Date().toISOString();
+    const existing = await this.getUserByGoogleSub(data.googleSub);
+    const user: User = existing
+      ? { ...existing, ...data, lastLoginAt: now }
+      : { ...data, userId: randomUUID(), createdAt: now, lastLoginAt: now };
+    await ddb.send(new PutCommand({ TableName: TABLE_USERS, Item: user }));
+    return user;
   }
 
   // ── Companies ──
