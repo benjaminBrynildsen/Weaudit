@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>WeAudit Security Overview</title>
+    <title>WeAudit Security & Data Protection</title>
     <meta
       name="description"
-      content="Security overview for WeAudit: encryption, access controls, secure SDLC, monitoring, and audit readiness."
+      content="WeAudit security and data protection overview: statement handling, controls, privacy, governance, and operational safeguards."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -25,35 +25,36 @@
         <span class="brand-mark"></span>
         <span>WeAudit Security</span>
       </div>
-      <a class="btn btn-outline" href="#contact">Security Review Packet</a>
+      <a class="btn btn-outline" href="#contact">Request Security Packet</a>
     </header>
 
     <main>
       <section class="hero container reveal">
-        <p class="kicker">Security Overview</p>
-        <h1>Enterprise trust, built into every layer.</h1>
+        <p class="kicker">Security & Data Protection</p>
+        <h1>Trusted audit workflows. Protected client data.</h1>
         <p class="hero-copy">
-          WeAudit protects sensitive merchant and audit data with defense-in-depth controls across infrastructure,
-          application architecture, and operational processes.
+          WeAudit is built to help finance and operations teams review processing statements with confidence.
+          We apply layered security controls to protect uploaded documents, limit data exposure, and maintain
+          clear operational accountability.
         </p>
         <div class="hero-actions">
-          <a class="btn btn-primary" href="#controls">View Controls</a>
-          <a class="btn btn-ghost" href="#faq">Security FAQ</a>
+          <a class="btn btn-primary" href="#controls">Security Controls</a>
+          <a class="btn btn-ghost" href="#lifecycle">Statement Lifecycle</a>
         </div>
       </section>
 
       <section class="stats container reveal" aria-label="Security highlights">
         <article class="stat-card">
           <h3><span data-count="24">24</span>/7</h3>
-          <p>Monitoring & alert visibility</p>
+          <p>Monitoring visibility & operational awareness</p>
         </article>
         <article class="stat-card">
           <h3><span data-count="3">3</span>-Layer</h3>
-          <p>Defense model: Infra, App, Ops</p>
+          <p>Defense model: Infrastructure, Application, Operations</p>
         </article>
         <article class="stat-card">
           <h3><span data-count="100">100</span>%</h3>
-          <p>Encryption in transit (TLS)</p>
+          <p>Encrypted transfer paths (TLS)</p>
         </article>
       </section>
 
@@ -61,28 +62,106 @@
         <h2 class="reveal">Core Security Controls</h2>
         <div class="control-grid">
           <article class="control-card reveal">
-            <h3>Encryption</h3>
-            <p>Data is encrypted in transit and at rest using modern, industry-standard cryptographic controls.</p>
+            <h3>Encryption & Protected Transport</h3>
+            <p>
+              Data is encrypted in transit using TLS and protected at rest using modern, industry-standard encryption
+              practices across managed infrastructure.
+            </p>
           </article>
           <article class="control-card reveal">
-            <h3>Access Control</h3>
-            <p>Role-scoped permissions, least-privilege principles, and strict credential handling policies.</p>
+            <h3>Role-Based Access Control</h3>
+            <p>
+              Access follows least-privilege principles. Team access is scoped to business need and managed through
+              authenticated, permissioned accounts.
+            </p>
           </article>
           <article class="control-card reveal">
             <h3>Secure SDLC</h3>
-            <p>Code review, dependency hygiene, and controlled release processes reduce risk before production.</p>
+            <p>
+              We use controlled code changes, review-driven development, and dependency hygiene to reduce production
+              risk before release.
+            </p>
           </article>
           <article class="control-card reveal">
-            <h3>Audit Logging</h3>
-            <p>Operational events are logged for traceability, investigation support, and accountability.</p>
+            <h3>Auditability & Logging</h3>
+            <p>
+              Operational and application-level events are logged to support traceability, incident investigation,
+              and change accountability.
+            </p>
           </article>
           <article class="control-card reveal">
-            <h3>Infrastructure Hardening</h3>
-            <p>Environment isolation, hardened baselines, and active monitoring support resilient operations.</p>
+            <h3>Operational Hardening</h3>
+            <p>
+              We apply hardened environment baselines, security-aware deployment practices, and ongoing monitoring
+              to strengthen service resilience.
+            </p>
           </article>
           <article class="control-card reveal">
             <h3>Continuous Improvement</h3>
-            <p>Controls are reviewed and evolved regularly as requirements and threat landscapes change.</p>
+            <p>
+              Security controls are reviewed and iterated over time as threats, platform capabilities, and customer
+              requirements evolve.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section id="lifecycle" class="lifecycle container reveal">
+        <h2>How Statement Data Is Handled</h2>
+        <p class="section-copy">
+          WeAudit is designed to minimize exposure while preserving audit quality. Our workflow follows a controlled,
+          traceable lifecycle from upload through output delivery.
+        </p>
+        <ol class="timeline">
+          <li>
+            <h3>1) Secure Ingestion</h3>
+            <p>Client statements are received through encrypted channels and processed in authenticated sessions.</p>
+          </li>
+          <li>
+            <h3>2) Controlled Processing</h3>
+            <p>Statements are analyzed by our audit workflow with role-limited access and operational safeguards.</p>
+          </li>
+          <li>
+            <h3>3) Findings Generation</h3>
+            <p>Audit findings are generated and reviewed in a traceable workflow to support consistency and quality.</p>
+          </li>
+          <li>
+            <h3>4) Client Delivery</h3>
+            <p>Results are delivered through secure channels with clear summaries and supporting evidence.</p>
+          </li>
+          <li>
+            <h3>5) Retention & Cleanup</h3>
+            <p>Data retention follows business and legal requirements; aging data is handled through defined cleanup practices.</p>
+          </li>
+        </ol>
+      </section>
+
+      <section class="details container reveal">
+        <h2>Governance, Privacy, and Response Readiness</h2>
+        <div class="details-grid">
+          <article class="detail-card">
+            <h3>Security Governance</h3>
+            <ul>
+              <li>Defined ownership of platform and operational security responsibilities.</li>
+              <li>Periodic control reviews and implementation updates.</li>
+              <li>Change tracking to support accountability and review readiness.</li>
+            </ul>
+          </article>
+          <article class="detail-card">
+            <h3>Privacy by Design</h3>
+            <ul>
+              <li>Principle of minimal necessary access to sensitive client data.</li>
+              <li>Use-limited processing aligned to audit service delivery.</li>
+              <li>Structured handling of business-sensitive financial documents.</li>
+            </ul>
+          </article>
+          <article class="detail-card">
+            <h3>Incident Response Posture</h3>
+            <ul>
+              <li>Monitoring and alerting support timely issue detection.</li>
+              <li>Documented triage and containment workflows.</li>
+              <li>Post-incident review process focused on prevention and resilience.</li>
+            </ul>
           </article>
         </div>
       </section>
@@ -90,22 +169,46 @@
       <section id="faq" class="faq container reveal">
         <h2>Security FAQ</h2>
         <details>
-          <summary>Do you encrypt customer data?</summary>
-          <p>Yes. We apply encryption in transit and at rest to protect sensitive data throughout its lifecycle.</p>
+          <summary>How do you protect uploaded statements?</summary>
+          <p>
+            Statements are transmitted over encrypted channels and processed in controlled environments with
+            role-limited access and auditability measures.
+          </p>
         </details>
         <details>
-          <summary>How is access managed?</summary>
-          <p>Access is granted by role and business need only, following least-privilege principles.</p>
+          <summary>Do you apply least-privilege access?</summary>
+          <p>
+            Yes. Access is scoped by role and business need. We avoid broad permissions and limit sensitive data access
+            to authorized workflows.
+          </p>
         </details>
         <details>
-          <summary>Can you support enterprise security reviews?</summary>
-          <p>Yes. We support customer security review workflows and can provide further documentation under NDA.</p>
+          <summary>How do you support customer security reviews?</summary>
+          <p>
+            We support procurement and security review workflows, and can provide additional documentation and
+            questionnaire responses under NDA.
+          </p>
+        </details>
+        <details>
+          <summary>Do you share customer statement data?</summary>
+          <p>
+            Customer data is handled for service delivery purposes only. We do not sell customer statement data.
+          </p>
+        </details>
+        <details>
+          <summary>How often is security reviewed?</summary>
+          <p>
+            Security is continuously improved through periodic reviews, operational hardening, and platform updates.
+          </p>
         </details>
       </section>
 
       <section id="contact" class="cta container reveal">
-        <h2>Need a full security packet for procurement?</h2>
-        <p>We can provide additional security documentation and review support for enterprise onboarding.</p>
+        <h2>Preparing for an enterprise review?</h2>
+        <p>
+          We can provide an expanded security packet, including architecture notes, operational controls,
+          and procurement-friendly responses.
+        </p>
         <a class="btn btn-primary" href="mailto:security@weaudit.com">Contact Security Team</a>
       </section>
     </main>
