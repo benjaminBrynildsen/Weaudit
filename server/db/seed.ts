@@ -1,7 +1,18 @@
-import { BatchWriteCommand, ScanCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
-import { ddb, TABLE_DOWNGRADE_RULES, TABLE_PROCESSOR_ISOS } from "./client";
-import { setupTables } from "./setup";
-import { randomUUID } from "crypto";
+/**
+ * Seeds the default processor ISOs and downgrade rules.
+ *
+ * Backend-agnostic: uses the `storage` abstraction, so it works against
+ * whichever backend is active (DynamoDB locally, Postgres on Render).
+ *
+ * Idempotent: if rows already exist in a target table, that table is
+ * skipped. That means safe to run on every deploy — it will populate an
+ * empty database once, then never touch it again. Any edits you make
+ * through the UI survive subsequent runs.
+ *
+ * Run directly: npx tsx server/db/seed.ts
+ */
+
+import { storage, getBackend } from "../storage";
 
 const isos = [
   { name: "Fiserv", aliases: ["First Data"] },
@@ -24,7 +35,7 @@ type RuleSeed = {
   targetRate: number;
   levelTags: string[];
   keywords: string[];
-  informational?: boolean; // If true, exclude from primary audit (show as informational/optional recovery)
+  informational?: boolean;
 };
 
 // ── Data Level II Downgrades ─────────────────────────────────────────────────
@@ -124,75 +135,44 @@ const l3Rules: RuleSeed[] = [
 
 const rules: RuleSeed[] = [...l2Rules, ...l3Rules];
 
-async function clearTable(tableName: string, keyName: string) {
-  console.log(`Clearing existing items from ${tableName}...`);
-  const scanResult = await ddb.send(new ScanCommand({ TableName: tableName }));
-  const items = scanResult.Items || [];
-
-  if (items.length === 0) {
-    console.log(`  No items to clear from ${tableName}`);
-    return;
-  }
-
-  console.log(`  Deleting ${items.length} items from ${tableName}...`);
-  for (const item of items) {
-    await ddb.send(
-      new DeleteCommand({
-        TableName: tableName,
-        Key: { [keyName]: item[keyName] },
-      })
-    );
-  }
-  console.log(`  Cleared ${items.length} items from ${tableName}`);
-}
-
-async function batchPut(tableName: string, items: Record<string, unknown>[]) {
-  // DynamoDB batch write supports max 25 items per call
-  for (let i = 0; i < items.length; i += 25) {
-    const batch = items.slice(i, i + 25);
-    await ddb.send(
-      new BatchWriteCommand({
-        RequestItems: {
-          [tableName]: batch.map((item) => ({
-            PutRequest: { Item: item },
-          })),
-        },
-      })
-    );
-  }
-}
-
 export async function seed() {
-  console.log("Ensuring tables exist...");
-  await setupTables();
+  console.log(`Seeding via ${getBackend()} backend...`);
 
-  // Clear existing data before reseeding
-  await clearTable(TABLE_DOWNGRADE_RULES, "ruleId");
-  await clearTable(TABLE_PROCESSOR_ISOS, "isoId");
+  // Idempotency: only populate tables that are empty. Any UI edits you've
+  // made to rules/ISOs survive re-seeding.
+  const existingIsos = await storage.listProcessorISOs();
+  if (existingIsos.length > 0) {
+    console.log(`  processor_isos already has ${existingIsos.length} rows — skipping`);
+  } else {
+    console.log(`  Seeding ${isos.length} processor ISOs...`);
+    for (const iso of isos) {
+      await storage.createProcessorISO({
+        name: iso.name,
+        aliases: iso.aliases,
+        enabled: true,
+      });
+    }
+  }
 
-  console.log(`Seeding ${isos.length} processor ISOs...`);
-  const isoItems = isos.map((iso) => ({
-    isoId: randomUUID(),
-    name: iso.name,
-    aliases: iso.aliases,
-    enabled: true,
-  }));
-  await batchPut(TABLE_PROCESSOR_ISOS, isoItems);
-
-  console.log(`Seeding ${rules.length} downgrade rules...`);
-  const ruleItems = rules.map((r) => ({
-    ruleId: randomUUID(),
-    brand: r.brand,
-    name: r.name,
-    rate: r.rate,
-    reason: r.reason,
-    targetRate: r.targetRate,
-    levelTags: r.levelTags,
-    keywords: r.keywords,
-    enabled: true,
-    informational: r.informational || false,
-  }));
-  await batchPut(TABLE_DOWNGRADE_RULES, ruleItems);
+  const existingRules = await storage.listDowngradeRules();
+  if (existingRules.length > 0) {
+    console.log(`  downgrade_rules already has ${existingRules.length} rows — skipping`);
+  } else {
+    console.log(`  Seeding ${rules.length} downgrade rules...`);
+    for (const r of rules) {
+      await storage.createDowngradeRule({
+        brand: r.brand,
+        name: r.name,
+        rate: r.rate,
+        reason: r.reason,
+        targetRate: r.targetRate,
+        levelTags: r.levelTags,
+        keywords: r.keywords,
+        enabled: true,
+        informational: r.informational || false,
+      });
+    }
+  }
 
   console.log("Seed complete.");
 }

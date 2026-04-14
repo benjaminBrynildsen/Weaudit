@@ -1,3 +1,9 @@
+databases:
+  - name: weaudit-db
+    plan: free
+    databaseName: weaudit
+    user: weaudit
+
 services:
   - type: web
     name: weaudit
@@ -5,21 +11,25 @@ services:
     plan: starter
     branch: main
     autoDeploy: true
-    buildCommand: npm ci && npm run build
-    startCommand: npm start
+    # --include=dev is needed because NODE_ENV=production would otherwise
+    # cause npm ci to skip devDependencies (drizzle-kit, tsx, typescript),
+    # which we need to run migrations and the seed script.
+    buildCommand: npm ci --include=dev && npm run build
+    # Run schema sync + idempotent seed before the server starts. Both are
+    # safe to run on every boot: push is a no-op when the schema matches,
+    # and seed skips tables that already have rows.
+    startCommand: npx drizzle-kit push --force && npm run db:seed && npm start
     healthCheckPath: /
     envVars:
       - key: NODE_ENV
         value: production
       - key: NODE_VERSION
         value: 20.18.0
-      - key: AWS_REGION
-        sync: false
-      - key: AWS_ACCESS_KEY_ID
-        sync: false
-      - key: AWS_SECRET_ACCESS_KEY
-        sync: false
-      - key: DYNAMODB_ENDPOINT
-        sync: false
+      - key: DB_BACKEND
+        value: postgres
+      - key: DATABASE_URL
+        fromDatabase:
+          name: weaudit-db
+          property: connectionString
       - key: SESSION_SECRET
         generateValue: true
