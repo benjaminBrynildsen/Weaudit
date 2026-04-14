@@ -9,7 +9,8 @@
     "dev": "NODE_ENV=development tsx server/index.ts",
     "build": "tsx script/build.ts",
     "start": "NODE_ENV=production node dist/index.cjs",
-    "check": "tsc"
+    "check": "tsc",
+    "export:dynamo": "tsx script/export-dynamo.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.987.0",
