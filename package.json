@@ -10,6 +10,7 @@
     "build": "tsx script/build.ts",
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
+    "test": "tsx server/engine/abbreviations.test.ts",
     "export:dynamo": "tsx script/export-dynamo.ts",
     "db:migrate": "tsx script/migrate.ts",
     "db:seed": "tsx server/db/seed.ts",
