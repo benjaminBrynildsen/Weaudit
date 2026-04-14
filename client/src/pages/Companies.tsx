@@ -5,8 +5,9 @@ import {
   useCreateCompany,
   useUpdateCompany,
   useDeleteCompany,
+  useAudits,
 } from "@/lib/api";
-import type { Company } from "@/lib/api";
+import type { Company, Audit } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,13 +41,15 @@ import {
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/hooks/use-toast";
-import { Search, Plus, Pencil, Trash2, Building2, ArrowUpDown } from "lucide-react";
+import { Search, Plus, Pencil, Trash2, Building2, ArrowUpDown, History, FileText, ExternalLink, Download, CloudUpload } from "lucide-react";
+import { uploadToDrive } from "@/lib/google-drive";
 
 type SortField = "name" | "riskLevel" | "adjustedEffectiveRate";
 type SortDir = "asc" | "desc";
 
 const EMPTY_FORM: Omit<Company, "companyId" | "createdAt" | "updatedAt"> = {
   name: "",
+  mid: "",
   auditLevel: "Level II",
   auditor: "",
   paymentMethod: "",
@@ -107,6 +110,7 @@ function riskBadge(level: string) {
 
 export default function Companies() {
   const { data: companies = [], isLoading } = useCompanies();
+  const { data: audits = [] } = useAudits();
   const createMutation = useCreateCompany();
   const updateMutation = useUpdateCompany();
   const deleteMutation = useDeleteCompany();
@@ -121,6 +125,20 @@ export default function Companies() {
   const [form, setForm] = useState(EMPTY_FORM);
 
   const [deleteTarget, setDeleteTarget] = useState<Company | null>(null);
+  const [historyCompany, setHistoryCompany] = useState<Company | null>(null);
+  const [backingUp, setBackingUp] = useState(false);
+
+  const companyAudits = useMemo(() => {
+    if (!historyCompany?.mid) return [];
+    const companyMid = historyCompany.mid.replace(/\D/g, "");
+    if (!companyMid) return [];
+    return audits
+      .filter((a) => {
+        const auditMid = (a.mid || "").replace(/\D/g, "");
+        return auditMid === companyMid || auditMid.endsWith(companyMid) || companyMid.endsWith(auditMid);
+      })
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [historyCompany, audits]);
 
   // Filter + sort
   const filtered = useMemo(() => {
@@ -130,6 +148,7 @@ export default function Companies() {
       list = list.filter(
         (c) =>
           c.name.toLowerCase().includes(q) ||
+          (c.mid || "").toLowerCase().includes(q) ||
           c.processor.toLowerCase().includes(q) ||
           c.csm.toLowerCase().includes(q)
       );
@@ -149,6 +168,77 @@ export default function Companies() {
     } else {
       setSortField(field);
       setSortDir("asc");
+    }
+  };
+
+  const buildCsv = () => {
+    const headers = [
+      "Name", "MID", "Audit Level", "Auditor", "Payment Method",
+      "CSM", "CSM Phone", "Send To",
+      "Discount", "Transaction Fee", "Amex Fee", "Statement Fee",
+      "AVS Fee", "Reg Fee", "Chargeback Fee", "Auth Fee",
+      "Annual Fee", "Monitoring Fee", "PCI Fee",
+      "Gateway", "Gateway Fee", "Gateway Trans Fee",
+      "Processor", "Statement Obtain Method",
+      "Validation Status", "Risk Level",
+      "Adjusted Eff. Rate", "Actual Old Eff. Rate",
+    ];
+    const escape = (v: string | number) => {
+      const s = String(v);
+      return s.includes(",") || s.includes('"') || s.includes("\n")
+        ? `"${s.replace(/"/g, '""')}"`
+        : s;
+    };
+    const rows = companies.map((c) => [
+      c.name, c.mid, c.auditLevel, c.auditor, c.paymentMethod,
+      c.csm, c.csmPhone, c.sendTo,
+      c.discountRate, c.transactionFee, c.amexFee, c.statementFee,
+      c.avsFee, c.regFee, c.chargebackFee, c.authFee,
+      c.annualFee, c.monitoringFee, c.pciFee,
+      c.gateway, c.gatewayFee, c.gatewayTransFee,
+      c.processor, c.statementObtainMethod,
+      c.validationStatus, c.riskLevel,
+      c.adjustedEffectiveRate, c.actualOldEffectiveRate,
+    ].map(escape).join(","));
+
+    return [headers.map(escape).join(","), ...rows].join("\n");
+  };
+
+  const exportCsv = () => {
+    const csv = buildCsv();
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `weaudit-companies-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const backupToDrive = async () => {
+    setBackingUp(true);
+    try {
+      const csv = buildCsv();
+      const fileName = `weaudit-companies-${new Date().toISOString().slice(0, 10)}.csv`;
+      const { webViewLink } = await uploadToDrive(fileName, csv);
+      toast({
+        title: "Backed up to Google Drive",
+        description: (
+          <a href={webViewLink} target="_blank" rel="noopener noreferrer" className="underline">
+            Open in Drive
+          </a>
+        ),
+      });
+    } catch (err: any) {
+      toast({
+        title: "Drive backup failed",
+        description: err.message || "Something went wrong.",
+        variant: "destructive",
+      });
+    } finally {
+      setBackingUp(false);
     }
   };
 
@@ -218,6 +308,12 @@ export default function Companies() {
             <Badge variant="outline" className="text-muted-foreground">
               {companies.length} {companies.length === 1 ? "company" : "companies"}
             </Badge>
+            <Button variant="outline" size="sm" onClick={exportCsv} disabled={companies.length === 0}>
+              <Download className="w-4 h-4 mr-2" /> Export CSV
+            </Button>
+            <Button variant="outline" size="sm" onClick={backupToDrive} disabled={companies.length === 0 || backingUp}>
+              <CloudUpload className="w-4 h-4 mr-2" /> {backingUp ? "Uploading..." : "Google Drive"}
+            </Button>
           </div>
         </div>
 
@@ -266,6 +362,7 @@ export default function Companies() {
                         Company Name <ArrowUpDown className="w-3 h-3" />
                       </button>
                     </th>
+                    <th className="px-3 py-3 font-medium hidden sm:table-cell">MID</th>
                     <th className="px-3 py-3 font-medium hidden md:table-cell">Audit Level</th>
                     <th className="px-3 py-3 font-medium hidden lg:table-cell">CSM</th>
                     <th className="px-3 py-3 font-medium">Processor</th>
@@ -289,6 +386,7 @@ export default function Companies() {
                       className="border-b last:border-b-0 hover:bg-secondary/10 transition-colors"
                     >
                       <td className="px-5 py-3 font-medium">{c.name}</td>
+                      <td className="px-3 py-3 hidden sm:table-cell font-mono text-xs">{c.mid || "—"}</td>
                       <td className="px-3 py-3 hidden md:table-cell">{c.auditLevel || "—"}</td>
                       <td className="px-3 py-3 hidden lg:table-cell">{c.csm || "—"}</td>
                       <td className="px-3 py-3">{c.processor || "—"}</td>
@@ -298,6 +396,9 @@ export default function Companies() {
                       </td>
                       <td className="px-5 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
+                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setHistoryCompany(c)} title="Audit history">
+                            <History className="w-4 h-4" />
+                          </Button>
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(c)}>
                             <Pencil className="w-4 h-4" />
                           </Button>
@@ -340,6 +441,10 @@ export default function Companies() {
                 <div className="space-y-1.5">
                   <Label>Company Name</Label>
                   <Input value={form.name} onChange={(e) => setField("name", e.target.value)} placeholder="ABC NURSERY" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>MID</Label>
+                  <Input value={form.mid} onChange={(e) => setField("mid", e.target.value)} placeholder="0880" className="font-mono" />
                 </div>
                 <div className="space-y-1.5">
                   <Label>Audit Level</Label>
@@ -397,7 +502,7 @@ export default function Companies() {
               <p className="text-sm font-semibold mb-3">Contracted Service Charges</p>
               <div className="grid sm:grid-cols-2 gap-3">
                 {([
-                  ["discountRate", "Discount Rate (%)"],
+                  ["discountRate", "Discount"],
                   ["transactionFee", "Transaction Fee ($)"],
                   ["amexFee", "Amex Fee ($)"],
                   ["statementFee", "Statement Fee ($)"],
@@ -532,6 +637,89 @@ export default function Companies() {
               {editingCompany ? "Save Changes" : "Create Company"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Audit History Dialog ── */}
+      <Dialog open={!!historyCompany} onOpenChange={(open) => !open && setHistoryCompany(null)}>
+        <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Audit History</DialogTitle>
+            <DialogDescription>
+              {historyCompany?.name}{historyCompany?.mid ? ` (MID: ${historyCompany.mid})` : ""}
+            </DialogDescription>
+          </DialogHeader>
+
+          {companyAudits.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-border p-8 text-center">
+              <FileText className="w-8 h-8 mx-auto text-muted-foreground/40" />
+              <p className="text-sm font-semibold mt-3">No audits found</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                {historyCompany?.mid
+                  ? "No audits have been run with this MID yet."
+                  : "Add a MID to this company to track audit history."}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {companyAudits.map((a) => {
+                const statusColor =
+                  a.status === "complete"
+                    ? "bg-emerald-500/10 text-emerald-700 border-emerald-500/20"
+                    : a.status === "needs_review"
+                      ? "bg-amber-500/10 text-amber-700 border-amber-500/20"
+                      : "bg-muted text-muted-foreground border-border";
+                const fmtDate = new Date(a.createdAt).toLocaleDateString("en-US", {
+                  year: "numeric",
+                  month: "short",
+                  day: "numeric",
+                });
+                const fmtMoney = (n?: number) =>
+                  typeof n === "number"
+                    ? `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                    : "—";
+
+                return (
+                  <div
+                    key={a.auditId}
+                    className="rounded-lg border border-border p-3 hover:bg-secondary/10 transition-colors"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-medium">{a.statementPeriod || a.statementMonth || fmtDate}</p>
+                          <Badge variant="outline" className={`text-[10px] ${statusColor}`}>
+                            {a.status === "complete" ? "Complete" : a.status === "needs_review" ? "Needs Review" : a.status}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-3 mt-1.5 text-[11px] text-muted-foreground">
+                          <span>Vol: {fmtMoney(a.totalVolume)}</span>
+                          <span>Fees: {fmtMoney(a.totalFees)}</span>
+                          {a.effectiveRate != null && (
+                            <span>OER: {(a.effectiveRate * 100).toFixed(2)}%</span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          {a.processorDetected || a.processor || "—"} &middot; {fmtDate}
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0"
+                        onClick={() => {
+                          window.location.href = `/report?auditId=${a.auditId}`;
+                        }}
+                        title="View report"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

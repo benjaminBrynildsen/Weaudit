@@ -158,6 +158,97 @@ export function filterInterchangeLines(
   return lines;
 }
 
+// ── Service Charges Section Detection ────────────────────────────────────────
+
+const SERVICE_CHARGES_HEADERS = [
+  /^SERVICE\s+CHARGES/i,
+  /^SERVICE\s+CHARGE\s+DETAIL/i,
+  /^SERVICE\s+FEES/i,
+];
+
+const SERVICE_CHARGES_END_PATTERNS = [
+  /^INTERCHANGE/i,
+  /^PENDING\s+INTERCHANGE/i,
+  /^ASSESSMENT/i,
+  /^DUES\s+AND\s+ASSESSMENTS/i,
+  /^GRAND\s+TOTAL/i,
+  /^TOTAL\s+CHARGES/i,
+  /^ADJUSTMENTS/i,
+  /^PAGE\s+\d+/i,
+  /^\f/,  // Form feed (page break)
+];
+
+/**
+ * Detect the "Service Charges" section boundaries in the statement
+ */
+export function detectServiceChargesSection(
+  lines: NormalizedLine[],
+  fullText: string,
+): SectionBoundary | null {
+  const textLines = fullText.split("\n");
+
+  let sectionStart = -1;
+  let sectionName = "";
+
+  for (let i = 0; i < textLines.length; i++) {
+    const line = textLines[i].trim();
+    for (const pattern of SERVICE_CHARGES_HEADERS) {
+      if (pattern.test(line)) {
+        sectionStart = i;
+        sectionName = line;
+        break;
+      }
+    }
+    if (sectionStart >= 0) break;
+  }
+
+  if (sectionStart < 0) return null;
+
+  let sectionEnd = textLines.length - 1;
+  let consecutiveEmptyLines = 0;
+
+  for (let i = sectionStart + 1; i < textLines.length; i++) {
+    const line = textLines[i].trim();
+
+    if (line.length === 0) {
+      consecutiveEmptyLines++;
+      if (consecutiveEmptyLines >= 3) {
+        sectionEnd = i;
+        break;
+      }
+      continue;
+    } else {
+      consecutiveEmptyLines = 0;
+    }
+
+    for (const pattern of SERVICE_CHARGES_END_PATTERNS) {
+      if (pattern.test(line)) {
+        sectionEnd = i - 1;
+        break;
+      }
+    }
+    if (sectionEnd < textLines.length - 1) break;
+  }
+
+  return { startLine: sectionStart, endLine: sectionEnd, sectionName };
+}
+
+/**
+ * Filter normalized lines to only those within the Service Charges section.
+ * Matches by page and line number range derived from the section boundaries.
+ */
+export function filterServiceChargeLines(
+  lines: NormalizedLine[],
+  section: SectionBoundary | null,
+): NormalizedLine[] {
+  if (!section) return [];
+
+  // Filter lines that fall within the section boundary (line numbers)
+  return lines.filter((line) => {
+    return line.lineNum >= section.startLine && line.lineNum <= section.endLine;
+  });
+}
+
 /**
  * For debugging: show section boundaries
  */

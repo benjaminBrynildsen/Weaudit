@@ -53,7 +53,7 @@ export interface Statement {
   uploadedAt: string;
 }
 
-export type FindingType = "non_pci" | "downgrade" | "padding" | "unknown";
+export type FindingType = "non_pci" | "downgrade" | "padding" | "unknown" | "service_charge";
 export type FindingStatus = "open" | "acknowledged" | "resolved" | "false_positive";
 
 export interface Finding {
@@ -88,6 +88,8 @@ export interface DowngradeRule {
   keywords: string[];
   enabled: boolean;
   informational?: boolean; // If true, exclude from primary audit (show as informational/optional recovery)
+  createdAt?: string;       // ISO date the rule was added to the admin database
+  lastMatchedAt?: string;   // ISO date the rule was last matched in an audit scan
 }
 
 export interface ProcessorISO {
@@ -122,6 +124,7 @@ export interface Notice {
 export interface Company {
   companyId: string;
   name: string;
+  mid: string;
   createdAt: string;
   updatedAt: string;
   auditLevel: string;
@@ -332,7 +335,11 @@ export class DynamoStorage implements IStorage {
   }
 
   async createDowngradeRule(data: Omit<DowngradeRule, "ruleId">): Promise<DowngradeRule> {
-    const rule: DowngradeRule = { ...data, ruleId: randomUUID() };
+    const rule: DowngradeRule = {
+      ...data,
+      ruleId: randomUUID(),
+      createdAt: data.createdAt || new Date().toISOString(),
+    };
     await ddb.send(new PutCommand({ TableName: TABLE_DOWNGRADE_RULES, Item: rule }));
     return rule;
   }
@@ -468,4 +475,54 @@ export class DynamoStorage implements IStorage {
   }
 }
 
-export const storage = new DynamoStorage();
+import { MemStorage } from "./mem-storage";
+import { setupTables } from "./db/setup";
+import { isos as seedIsos, rules as seedRules, companySeedData, buildCompanyItem } from "./db/seed";
+
+async function seedMemStorage(s: MemStorage): Promise<void> {
+  for (const iso of seedIsos) {
+    await s.createProcessorISO({ name: iso.name, aliases: iso.aliases, enabled: true });
+  }
+  for (const r of seedRules) {
+    await s.createDowngradeRule({
+      brand: r.brand,
+      name: r.name,
+      rate: r.rate,
+      reason: r.reason,
+      targetRate: r.targetRate,
+      levelTags: r.levelTags,
+      keywords: r.keywords,
+      enabled: true,
+      informational: r.informational || false,
+    });
+  }
+  for (const c of companySeedData) {
+    const item = buildCompanyItem(c);
+    // Strip auto-managed fields; createCompany regenerates them
+    const { companyId: _id, createdAt: _ca, updatedAt: _ua, ...rest } = item as any;
+    await s.createCompany(rest);
+  }
+  console.log(`[storage] Seeded in-memory: ${seedIsos.length} ISOs, ${seedRules.length} rules, ${companySeedData.length} companies`);
+}
+
+async function createStorage(): Promise<IStorage> {
+  try {
+    // Ensure tables exist before testing connectivity
+    await setupTables();
+    // Test DynamoDB connectivity
+    await ddb.send(new ScanCommand({ TableName: TABLE_COMPANIES, Limit: 1 }));
+    console.log("[storage] Using DynamoDB");
+    return new DynamoStorage();
+  } catch {
+    console.log("[storage] DynamoDB unavailable — using in-memory storage");
+    const mem = new MemStorage();
+    await seedMemStorage(mem);
+    return mem;
+  }
+}
+
+export let storage: IStorage = new DynamoStorage();
+
+export async function initStorage() {
+  storage = await createStorage();
+}

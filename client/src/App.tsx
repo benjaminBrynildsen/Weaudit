@@ -13,6 +13,7 @@ import Settings from "@/pages/Settings";
 import Review from "./pages/Review";
 import Report from "@/pages/Report";
 import Companies from "@/pages/Companies";
+import BulkAudit from "@/pages/BulkAudit";
 
 function Router() {
   return (
@@ -20,6 +21,7 @@ function Router() {
       <Route path="/" component={Landing} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/upload" component={Upload} />
+      <Route path="/bulk-audit" component={BulkAudit} />
       <Route path="/history" component={History} />
       <Route path="/reports" component={Reports} />
       <Route path="/report" component={Report} />

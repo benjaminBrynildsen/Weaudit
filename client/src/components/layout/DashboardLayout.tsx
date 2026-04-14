@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import {
   LayoutDashboard,
   FileText,
+  Files,
   AlertTriangle,
   Building2,
   CalendarClock,
@@ -44,6 +45,7 @@ function Sidebar({ collapsed }: SidebarProps) {
 
   const navItems = [
     { icon: LayoutDashboard, label: "Statements", href: "/dashboard" },
+    { icon: Files, label: "Bulk Audit", href: "/bulk-audit" },
     { icon: CalendarClock, label: "History", href: "/history" },
     { icon: Building2, label: "Companies", href: "/companies" },
     { icon: BarChart3, label: "Reports", href: "/reports" },
@@ -58,7 +60,7 @@ function Sidebar({ collapsed }: SidebarProps) {
           <div className="w-8 h-8 rounded-lg bg-sidebar-primary flex items-center justify-center text-sidebar-primary-foreground">
             <ShieldCheck className="w-5 h-5" />
           </div>
-          {!collapsed && <span>We Audit</span>}
+          {!collapsed && <span>weAudit</span>}
         </div>
       </div>
 

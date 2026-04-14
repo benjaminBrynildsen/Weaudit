@@ -1,9 +1,9 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Download, FileText } from "lucide-react";
-import { PDFViewer, pdf } from "@react-pdf/renderer";
+import { Download, FileText, Loader2, AlertTriangle } from "lucide-react";
+import { usePDF, pdf } from "@react-pdf/renderer";
 import AuditReportDocument, { type AuditReportData } from "./AuditReportDocument";
 
 type Props = {
@@ -11,6 +11,45 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   data: AuditReportData;
 };
+
+function ModalPDFPreview({ document }: { document: React.ReactElement }) {
+  const [instance, updateInstance] = usePDF({ document: document as any });
+
+  useEffect(() => {
+    updateInstance(document as any);
+  }, [document, updateInstance]);
+
+  if (instance.loading) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center gap-3">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">Generating PDF...</p>
+      </div>
+    );
+  }
+
+  if (instance.error) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center gap-3 px-6">
+        <AlertTriangle className="w-8 h-8 text-destructive" />
+        <p className="text-sm text-destructive font-medium">PDF rendering failed</p>
+        <p className="text-xs text-muted-foreground text-center max-w-md">
+          {String(instance.error) || "Unknown error"}
+        </p>
+      </div>
+    );
+  }
+
+  if (!instance.url) return null;
+
+  return (
+    <iframe
+      src={`${instance.url}#toolbar=0`}
+      style={{ width: "100%", height: "100%", border: "none" }}
+      title="Audit report PDF preview"
+    />
+  );
+}
 
 export default function AuditReportModal({ open, onOpenChange, data }: Props) {
   const document = useMemo(() => <AuditReportDocument data={data} />, [data]);
@@ -68,9 +107,7 @@ export default function AuditReportModal({ open, onOpenChange, data }: Props) {
         </div>
 
         <div className="h-[72vh] bg-secondary/20">
-          <PDFViewer style={{ width: "100%", height: "100%" }} showToolbar={false}>
-            {document}
-          </PDFViewer>
+          <ModalPDFPreview document={document} />
         </div>
       </DialogContent>
     </Dialog>

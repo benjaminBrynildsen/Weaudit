@@ -1,19 +1,68 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Download, ArrowLeft } from "lucide-react";
-import { PDFViewer, pdf } from "@react-pdf/renderer";
+import { Download, ArrowLeft, Loader2, AlertTriangle } from "lucide-react";
+import { usePDF, pdf } from "@react-pdf/renderer";
 import AuditReportDocument from "@/components/reports/AuditReportDocument";
+import type { AuditReportData } from "@/components/reports/AuditReportDocument";
 import { makeMockAuditReport } from "@/lib/mockAuditReport";
+import { useReport } from "@/lib/api";
+
+/** Custom PDF preview that shows loading/error states instead of a blank iframe. */
+function PDFPreview({ document }: { document: React.ReactElement }) {
+  const [instance, updateInstance] = usePDF({ document: document as any });
+
+  useEffect(() => {
+    updateInstance(document as any);
+  }, [document, updateInstance]);
+
+  return (
+    <div className="h-[72vh] overflow-hidden rounded-lg border border-border bg-secondary/20 relative">
+      {instance.loading && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10 bg-secondary/20">
+          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Generating PDF...</p>
+        </div>
+      )}
+      {instance.error && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10 bg-secondary/20 px-6">
+          <AlertTriangle className="w-8 h-8 text-destructive" />
+          <p className="text-sm text-destructive font-medium">PDF rendering failed</p>
+          <p className="text-xs text-muted-foreground text-center max-w-md">
+            {String(instance.error) || "Unknown error"}
+          </p>
+        </div>
+      )}
+      {instance.url && (
+        <iframe
+          src={`${instance.url}#toolbar=0`}
+          style={{ width: "100%", height: "100%", border: "none" }}
+          title="Audit report PDF preview"
+        />
+      )}
+    </div>
+  );
+}
 
 export default function Report() {
   const [, setLocation] = useLocation();
   const [downloading, setDownloading] = useState(false);
 
-  const data = useMemo(() => makeMockAuditReport(), []);
+  // Read auditId from URL query params (History page links here with ?auditId=xxx)
+  const auditId = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("auditId") ?? undefined;
+  }, []);
+
+  // Fetch real report data from /api/reports/:auditId when available
+  const { data: apiData, isLoading } = useReport(auditId);
+
+  // Fall back to mock data when no auditId or API hasn't returned data yet
+  const mockData = useMemo(() => makeMockAuditReport(), []);
+  const data: AuditReportData = (apiData as AuditReportData) ?? mockData;
 
   const [draft, setDraft] = useState(() => ({
     merchant: data.merchant,
@@ -27,37 +76,48 @@ export default function Report() {
     revenueLost: data.summary.revenueLost,
   }));
 
-  const hydrated = useMemo(
-    () =>
-      makeMockAuditReport({
-        client: draft.merchant,
-        statementMonth: draft.statementMonth,
-        processor: draft.processor,
-        mid: draft.mid,
-        status: draft.status,
-        estRecovery: Math.max(0, Number(draft.revenueLost.replace(/[^0-9.-]/g, "")) || 0),
-        nonPci: data.flags.nonPci,
-        downgrades: data.flags.downgrades,
-        id: data.auditId,
-      }),
-    [data.auditId, data.flags.downgrades, data.flags.nonPci, draft],
-  );
+  // Sync draft when API data arrives (replaces mock defaults with real values)
+  useEffect(() => {
+    if (!apiData) return;
+    const d = apiData as AuditReportData;
+    setDraft({
+      merchant: d.merchant,
+      location: d.location,
+      statementMonth: d.statementMonth,
+      processor: d.processor,
+      mid: d.mid,
+      volume: d.volume,
+      status: d.status,
+      discountSavings: d.summary.discountSavings,
+      revenueLost: d.summary.revenueLost,
+    });
+  }, [apiData]);
 
+  // Build the PDF document data directly from the API response (or fallback mock).
+  // Previously this used makeMockAuditReport which replaced real findings with fake ones.
   const doc = useMemo(
     () => (
       <AuditReportDocument
         data={{
-          ...hydrated,
+          auditId: data.auditId,
+          merchant: draft.merchant,
           location: draft.location,
+          statementMonth: draft.statementMonth,
+          processor: draft.processor,
+          mid: draft.mid,
           volume: draft.volume,
+          status: draft.status,
           summary: {
             discountSavings: draft.discountSavings,
             revenueLost: draft.revenueLost,
           },
+          flags: data.flags,
+          findings: data.findings,
+          notes: data.notes,
         }}
       />
     ),
-    [draft, hydrated],
+    [data, draft],
   );
 
   const fileName = `${draft.merchant.replace(/\s+/g, "-")}-${draft.statementMonth}-${data.auditId}.pdf`.toLowerCase();
@@ -261,11 +321,7 @@ export default function Report() {
             </div>
 
             <div className="md:col-span-7">
-              <div className="h-[72vh] overflow-hidden rounded-lg border border-border bg-secondary/20">
-                <PDFViewer style={{ width: "100%", height: "100%" }} showToolbar={false}>
-                  {doc}
-                </PDFViewer>
-              </div>
+              <PDFPreview document={doc} />
             </div>
           </div>
         </Card>

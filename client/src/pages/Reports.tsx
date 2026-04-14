@@ -19,9 +19,11 @@ import {
   Building2,
   BadgePercent,
   CircleDashed,
+  Loader2,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { useAudits, useCreateNotice } from "@/lib/api";
 
 type CompletionStatus = "Missing" | "In Progress" | "Complete";
 
@@ -36,42 +38,30 @@ type MonthlyRow = {
   notes: string;
 };
 
-const initialRows: MonthlyRow[] = [
-  {
-    id: "r-1",
-    client: "Acme Coffee Roasters",
-    processor: "CardConnect",
-    month: "2024-01",
-    mid: "MID-0042187",
-    status: "In Progress",
-    losses: "$0",
-    notes: "Waiting on PCI attestation confirmation",
-  },
-  {
-    id: "r-2",
-    client: "Northside Auto",
-    processor: "Fiserv",
-    month: "2024-01",
-    mid: "MID-0081144",
-    status: "Missing",
-    losses: "$0",
-    notes: "No statement uploaded yet",
-  },
-  {
-    id: "r-3",
-    client: "Sunset Dental",
-    processor: "VersaPay",
-    month: "2024-01",
-    mid: "MID-0017740",
-    status: "Complete",
-    losses: "$499 annual fee (refund requested)",
-    notes: "One-time notice included in report",
-  },
-];
-
 export default function Reports() {
   const { toast } = useToast();
-  const [rows, setRows] = useState<MonthlyRow[]>(initialRows);
+  const { data: audits, isLoading: auditsLoading } = useAudits();
+  const createNotice = useCreateNotice();
+  const [rows, setRows] = useState<MonthlyRow[]>([]);
+
+  useEffect(() => {
+    if (audits) {
+      setRows(
+        audits.map((audit) => ({
+          id: audit.auditId,
+          client: audit.clientName,
+          processor: audit.processor,
+          month: audit.statementMonth,
+          mid: audit.mid,
+          status: (audit.status === "complete"
+            ? "Complete"
+            : "In Progress") as CompletionStatus,
+          losses: "$0",
+          notes: "",
+        })),
+      );
+    }
+  }, [audits]);
 
   const [noticeClient, setNoticeClient] = useState("Sunset Dental");
   const [noticeMonth, setNoticeMonth] = useState("2024-01");
@@ -85,7 +75,12 @@ export default function Reports() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-8">
+      {auditsLoading && (
+        <div className="flex items-center justify-center py-24">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      )}
+      <div className="space-y-8" style={auditsLoading ? { display: "none" } : undefined}>
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 data-testid="text-reports-title" className="text-3xl font-bold font-heading tracking-tight">
@@ -210,8 +205,27 @@ export default function Reports() {
                     </div>
 
                     <div className="flex gap-2 mt-3">
-                      <Button data-testid="button-save-notice" onClick={() => generate("Notice saved")}
+                      <Button
+                        data-testid="button-save-notice"
+                        disabled={createNotice.isPending}
+                        onClick={() => {
+                          const matchingAudit = audits?.find(
+                            (a) => a.clientName === noticeClient && a.statementMonth === noticeMonth,
+                          );
+                          if (!matchingAudit) {
+                            toast({ title: "No matching audit", description: "Could not find an audit for that client and month.", variant: "destructive" });
+                            return;
+                          }
+                          createNotice.mutate(
+                            { auditId: matchingAudit.auditId, type: "annual_fee", amount: 0, message: noticeText },
+                            {
+                              onSuccess: () => toast({ title: "Notice saved", description: "The notice has been created." }),
+                              onError: () => toast({ title: "Error", description: "Failed to save notice.", variant: "destructive" }),
+                            },
+                          );
+                        }}
                       >
+                        {createNotice.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                         Save notice
                       </Button>
                       <Button data-testid="button-add-to-report" variant="outline" onClick={() => generate("Notice added to report")}

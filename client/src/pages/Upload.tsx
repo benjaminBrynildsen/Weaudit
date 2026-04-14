@@ -17,7 +17,7 @@ import {
   AlertCircle,
   ShieldCheck,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,10 +31,14 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
+import { useUploadStatement, useAudits, useAuditStatus, useAudit, type AuditStatus } from "@/lib/api";
+import { useLocation } from "wouter";
 
 type UploadStatus = "idle" | "uploading" | "processing" | "review" | "done";
 
-type Processor = "CardConnect" | "Fiserv" | "VersaPay" | "Stripe" | "Square" | "Chase" | "Other";
+type Processor = "CardConnect" | "Fiserv" | "Elavon" | "Worldpay" | "Chase" | "VersaPay" | "Stripe" | "Square" | "North Summit" | "CoCard" | "Other";
+
+type GatewayLevel = "II" | "III";
 
 type UploadedStatement = {
   id: string;
@@ -54,6 +58,22 @@ type UploadedStatement = {
   notices?: Array<{ type: "annual_fee"; amount: number; message: string }>;
 };
 
+/** Map backend AuditStatus to the local UploadStatus for display. */
+function mapAuditStatusToUploadStatus(backendStatus: AuditStatus): UploadStatus {
+  switch (backendStatus) {
+    case "idle":
+      return "uploading";
+    case "scanning":
+      return "processing";
+    case "needs_review":
+      return "review";
+    case "complete":
+      return "done";
+    default:
+      return "idle";
+  }
+}
+
 function uid() {
   return Math.random().toString(16).slice(2);
 }
@@ -62,7 +82,7 @@ const sampleQuestions = [
   {
     id: "q-processing-model",
     label: "How are you processing today?",
-    hint: "Helps AutoAudit route to the right benchmark & rule pack.",
+    hint: "Helps weAudit route to the right benchmark & rule pack.",
   },
   {
     id: "q-card-present",
@@ -81,8 +101,10 @@ export default function Upload() {
   const [files, setFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
 
   const [processor, setProcessor] = useState<Processor>("CardConnect");
+  const [gatewayLevel, setGatewayLevel] = useState<GatewayLevel>("II");
   const [month, setMonth] = useState("2024-01");
   const [businessName, setBusinessName] = useState("Acme Coffee Roasters");
   const [mid, setMid] = useState("MID-0042187");
@@ -97,6 +119,18 @@ export default function Upload() {
 
   const [unknownFeeApprovalEnabled, setUnknownFeeApprovalEnabled] = useState(true);
   const [unknownFeeThreshold, setUnknownFeeThreshold] = useState("$1.00");
+
+  // Real API hooks
+  const uploadMutation = useUploadStatement();
+  const { data: auditsData } = useAudits();
+
+  // Track audit IDs that are currently being polled
+  const [pollingAuditId, setPollingAuditId] = useState<string | undefined>(undefined);
+  const { data: pollingStatus } = useAuditStatus(pollingAuditId, !!pollingAuditId);
+
+  // Fetch completed audit data for findings preview
+  const [completedAuditId, setCompletedAuditId] = useState<string | undefined>(undefined);
+  const { data: completedAudit } = useAudit(completedAuditId);
 
   const [statements, setStatements] = useState<UploadedStatement[]>([
     {
@@ -120,6 +154,97 @@ export default function Upload() {
       ],
     },
   ]);
+
+  // Map of local statement IDs to backend audit IDs for polling
+  const [statementAuditMap, setStatementAuditMap] = useState<Record<string, string>>({});
+
+  // Update statement status when polling returns new data
+  useEffect(() => {
+    if (!pollingStatus) return;
+    const { auditId, status: backendStatus } = pollingStatus;
+    const displayStatus = mapAuditStatusToUploadStatus(backendStatus);
+
+    // Find the local statement ID for this audit
+    const localId = Object.entries(statementAuditMap).find(
+      ([, aId]) => aId === auditId,
+    )?.[0];
+    if (!localId) return;
+
+    setStatements((prev) =>
+      prev.map((s) => {
+        if (s.id !== localId) return s;
+        const progress =
+          displayStatus === "done" ? 100
+          : displayStatus === "review" ? 100
+          : displayStatus === "processing" ? 60
+          : displayStatus === "uploading" ? 30
+          : s.progress;
+
+        return {
+          ...s,
+          status: displayStatus,
+          progress,
+        };
+      }),
+    );
+
+    // Stop polling once the audit is in a terminal state
+    if (backendStatus === "complete" || backendStatus === "needs_review") {
+      setPollingAuditId(undefined);
+      setCompletedAuditId(auditId);
+      toast({
+        title: backendStatus === "complete" ? "Audit complete" : "Human review queued",
+        description:
+          backendStatus === "complete"
+            ? "Your statement was audited and findings are ready."
+            : "This statement needs a human review before reporting.",
+      });
+    }
+  }, [pollingStatus, statementAuditMap, toast]);
+
+  // Populate findings preview once full audit data loads
+  useEffect(() => {
+    if (!completedAudit || !completedAudit.findings) return;
+    const auditId = completedAudit.auditId;
+    const localId = Object.entries(statementAuditMap).find(
+      ([, aId]) => aId === auditId,
+    )?.[0];
+    if (!localId) return;
+
+    const findings = completedAudit.findings;
+    const downgrades = findings.filter((f) => f.type === "downgrade");
+    const unknowns = findings.filter((f) => f.type === "unknown");
+
+    // Calculate potential savings: sum of estimated revenue lost per downgrade
+    const potentialSavingsMonthly = downgrades.reduce((sum, f) => {
+      return sum + (f.spread ?? 0);
+    }, 0);
+
+    const confidence: "High" | "Medium" | "Low" =
+      downgrades.length > 0
+        ? downgrades.every((f) => f.confidence === "High")
+          ? "High"
+          : downgrades.some((f) => f.confidence === "High")
+            ? "Medium"
+            : "Low"
+        : "Low";
+
+    setStatements((prev) =>
+      prev.map((s) =>
+        s.id === localId
+          ? {
+              ...s,
+              findingsPreview: {
+                potentialSavingsMonthly,
+                confidence,
+                unknownFees: unknowns.length,
+              },
+            }
+          : s,
+      ),
+    );
+    setCompletedAuditId(undefined);
+  }, [completedAudit, statementAuditMap]);
 
   const eligibleReason = useMemo(() => {
     if (!autoAuditEligible) {
@@ -153,82 +278,96 @@ export default function Upload() {
     }
   };
 
-  const simulatePipeline = (statementId: string) => {
-    setStatements((prev) =>
-      prev.map((s) =>
-        s.id === statementId
-          ? {
-              ...s,
-              status: "uploading",
-              progress: 10,
-            }
-          : s,
-      ),
-    );
+  const handleFiles = useCallback(
+    (newFiles: File[]) => {
+      setFiles((prev) => [...prev, ...newFiles]);
 
-    const steps: Array<{ status: UploadStatus; inc: number; label: string }> = [
-      { status: "uploading", inc: 25, label: "Uploading" },
-      { status: "processing", inc: 35, label: "Parsing & normalizing" },
-      { status: autoAuditEligible ? "done" : "review", inc: 40, label: autoAuditEligible ? "Generating findings" : "Routing to Human Review" },
-    ];
+      const file = newFiles[0];
+      if (!file) return;
 
-    let stepIndex = 0;
-    const interval = setInterval(() => {
-      setStatements((prev) => {
-        const next = prev.map((s) => {
-          if (s.id !== statementId) return s;
-          const step = steps[Math.min(stepIndex, steps.length - 1)];
-          const nextProgress = Math.min(100, s.progress + step.inc);
-          const nextStatus = step.status;
-          return {
-            ...s,
-            status: nextStatus,
-            progress: nextProgress,
-            findingsPreview:
-              nextProgress >= 100
-                ? {
-                    potentialSavingsMonthly: processor === "CardConnect" ? 612.4 : 421.9,
-                    confidence: autoAuditEligible ? ("High" as const) : ("Medium" as const),
-                    unknownFees: unknownFeeApprovalEnabled ? 3 : 7,
-                  }
-                : s.findingsPreview,
-          };
-        });
-        return next;
+      const localId = "st-" + uid();
+
+      // Add a local placeholder statement in "uploading" state
+      const statement: UploadedStatement = {
+        id: localId,
+        fileName: file.name,
+        processor,
+        month,
+        businessName,
+        mid,
+        estimatedVolume,
+        status: "uploading",
+        progress: 10,
+        notices: [],
+      };
+      setStatements((prev) => [statement, ...prev]);
+
+      // Build the real FormData for the backend
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("clientName", businessName);
+      formData.append("processor", processor);
+      formData.append("statementMonth", month);
+      formData.append("mid", mid);
+      formData.append("gatewayLevel", gatewayLevel);
+
+      uploadMutation.mutate(formData, {
+        onSuccess: (data: { audit: { auditId: string; status: AuditStatus }; statement: any }) => {
+          const auditId = data.audit.auditId;
+          const backendStatus = data.audit.status;
+          const displayStatus = mapAuditStatusToUploadStatus(backendStatus);
+
+          // Map local statement ID to backend audit ID
+          setStatementAuditMap((prev) => ({ ...prev, [localId]: auditId }));
+
+          // Update statement with real data from API
+          setStatements((prev) =>
+            prev.map((s) => {
+              if (s.id !== localId) return s;
+              return {
+                ...s,
+                status: displayStatus,
+                progress:
+                  displayStatus === "done" ? 100
+                  : displayStatus === "review" ? 100
+                  : displayStatus === "processing" ? 60
+                  : 30,
+              };
+            }),
+          );
+
+          // If audit is not yet in a terminal state, start polling
+          if (backendStatus !== "complete" && backendStatus !== "needs_review") {
+            setPollingAuditId(auditId);
+          } else {
+            toast({
+              title: backendStatus === "complete" ? "Audit complete" : "Human review queued",
+              description:
+                backendStatus === "complete"
+                  ? "Your statement was audited and findings are ready."
+                  : "This statement needs a human review before reporting.",
+            });
+          }
+        },
+        onError: (error: Error) => {
+          // Mark the statement as failed
+          setStatements((prev) =>
+            prev.map((s) =>
+              s.id === localId
+                ? { ...s, status: "idle", progress: 0 }
+                : s,
+            ),
+          );
+          toast({
+            title: "Upload failed",
+            description: error.message || "Something went wrong uploading the statement.",
+            variant: "destructive",
+          });
+        },
       });
-
-      stepIndex += 1;
-      if (stepIndex >= steps.length) {
-        clearInterval(interval);
-        toast({
-          title: autoAuditEligible ? "Audit complete" : "Human review queued",
-          description: autoAuditEligible
-            ? "Your statement was audited automatically and findings are ready."
-            : "This statement needs a quick human review before reporting.",
-        });
-      }
-    }, 450);
-  };
-
-  const handleFiles = (newFiles: File[]) => {
-    setFiles((prev) => [...prev, ...newFiles]);
-
-    const statement: UploadedStatement = {
-      id: "st-" + uid(),
-      fileName: newFiles[0]?.name ?? "statement.pdf",
-      processor,
-      month,
-      businessName,
-      mid,
-      estimatedVolume,
-      status: "idle",
-      progress: 0,
-      notices: [],
-    };
-
-    setStatements((prev) => [statement, ...prev]);
-    simulatePipeline(statement.id);
-  };
+    },
+    [processor, gatewayLevel, month, businessName, mid, estimatedVolume, uploadMutation, toast],
+  );
 
   const removeLocalFile = (index: number) => {
     const newFiles = [...files];
@@ -274,7 +413,7 @@ export default function Upload() {
             Statement Intake
           </h1>
           <p data-testid="text-upload-subtitle" className="text-muted-foreground">
-            Upload statements for monthly audits. AutoAudit will choose the right processor rule pack and route edge cases to Human Review.
+            Upload statements for monthly audits. weAudit will choose the right processor rule pack and route edge cases to Human Review.
           </p>
         </div>
 
@@ -306,10 +445,14 @@ export default function Upload() {
                       {[
                         "CardConnect",
                         "Fiserv",
+                        "Elavon",
+                        "Worldpay",
+                        "Chase",
                         "VersaPay",
                         "Stripe",
                         "Square",
-                        "Chase",
+                        "North Summit",
+                        "CoCard",
                         "Other",
                       ].map((p) => (
                         <SelectItem key={p} value={p}>
@@ -350,12 +493,29 @@ export default function Upload() {
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="mid">MID (optional)</Label>
-                  <Input data-testid="input-mid" id="mid" value={mid} onChange={(e) => setMid(e.target.value)} />
-                  <p className="text-xs text-muted-foreground" data-testid="text-mid-help">
-                    Used to detect missing monthly audits and generate exception reports.
-                  </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="mid">MID (optional)</Label>
+                    <Input data-testid="input-mid" id="mid" value={mid} onChange={(e) => setMid(e.target.value)} />
+                    <p className="text-xs text-muted-foreground" data-testid="text-mid-help">
+                      Detect missing audits.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="gateway-level">Gateway Level</Label>
+                    <Select value={gatewayLevel} onValueChange={(v) => setGatewayLevel(v as GatewayLevel)}>
+                      <SelectTrigger data-testid="select-gateway-level" id="gateway-level">
+                        <SelectValue placeholder="Select level" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="II">Level II</SelectItem>
+                        <SelectItem value="III">Level III</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Filters downgrade rules.
+                    </p>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -381,7 +541,7 @@ export default function Upload() {
                       </p>
                       <p data-testid="text-eligibility-desc" className="text-xs text-muted-foreground mt-1">
                         {isAutoAudit
-                          ? "AutoAudit will classify fees and produce findings immediately."
+                          ? "weAudit will classify fees and produce findings immediately."
                           : "Your team can review unknown fees & special cases before reports are sent."}
                       </p>
                     </div>
@@ -483,7 +643,7 @@ export default function Upload() {
                 Upload statement (PDF/CSV)
               </h3>
               <p data-testid="text-dropzone-subtitle" className="text-muted-foreground max-w-md mx-auto mb-6">
-                AutoAudit will detect scanned vs. text PDFs, extract relevant pages, normalize fees, then generate findings.
+                weAudit will detect scanned vs. text PDFs, extract relevant pages, normalize fees, then generate findings.
               </p>
 
               <div className="flex items-center justify-center gap-3">
@@ -679,7 +839,14 @@ export default function Upload() {
                           size="sm"
                           variant="default"
                           className="shadow-sm"
-                          onClick={() => toast({ title: "Demo", description: "In the prototype, open Findings from the sidebar." })}
+                          onClick={() => {
+                            const auditId = statementAuditMap[s.id];
+                            if (auditId) {
+                              setLocation(`/history?auditId=${auditId}`);
+                            } else {
+                              setLocation("/history");
+                            }
+                          }}
                         >
                           <Sparkles className="w-4 h-4 mr-2" />
                           View findings
@@ -743,7 +910,7 @@ export default function Upload() {
                 Savings calculations (prototype)
               </p>
               <p data-testid="text-savings-explain-body" className="text-sm text-muted-foreground mt-1 leading-relaxed">
-                AutoAudit will show two savings views: DR Savings (difference-to-rate) and OER Savings (effective rate normalization). The UI will include an
+                weAudit will show two savings views: DR Savings (difference-to-rate) and OER Savings (effective rate normalization). The UI will include an
                 expandable “How we calculated this” panel with assumptions and evidence.
               </p>
             </div>
