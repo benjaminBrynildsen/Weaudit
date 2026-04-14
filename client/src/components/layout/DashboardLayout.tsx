@@ -1,5 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { useState, useEffect } from "react";
+import { useAuth, useLogout } from "@/hooks/useAuth";
 import {
   LayoutDashboard,
   FileText,
@@ -40,7 +41,24 @@ interface SidebarProps {
 }
 
 function Sidebar({ collapsed }: SidebarProps) {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
+  const { user } = useAuth();
+  const logout = useLogout();
+
+  const handleLogout = () => {
+    logout.mutate(undefined, {
+      onSuccess: () => setLocation("/login"),
+    });
+  };
+
+  const initials = user?.name
+    ? user.name
+        .split(" ")
+        .map((p) => p[0])
+        .slice(0, 2)
+        .join("")
+        .toUpperCase()
+    : "—";
 
   const navItems = [
     { icon: LayoutDashboard, label: "Statements", href: "/dashboard" },
@@ -109,26 +127,28 @@ function Sidebar({ collapsed }: SidebarProps) {
               className={`flex items-center ${collapsed ? "justify-center" : "gap-3"} w-full p-2 rounded-md hover:bg-sidebar-accent/50 transition-colors text-left`}
             >
               <Avatar className="w-8 h-8 border border-sidebar-border">
-                <AvatarImage src="https://github.com/shadcn.png" />
-                <AvatarFallback>JD</AvatarFallback>
+                {user?.picture && <AvatarImage src={user.picture} />}
+                <AvatarFallback>{initials}</AvatarFallback>
               </Avatar>
               {!collapsed && (
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">Jane Doe</p>
-                  <p className="text-xs text-sidebar-foreground/60 truncate">jane@example.com</p>
+                  <p className="text-sm font-medium truncate">{user?.name ?? "Not signed in"}</p>
+                  <p className="text-xs text-sidebar-foreground/60 truncate">{user?.email ?? ""}</p>
                 </div>
               )}
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuLabel>My Account</DropdownMenuLabel>
+            <DropdownMenuLabel>{user?.email ?? "My Account"}</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem data-testid="button-account-profile">Profile</DropdownMenuItem>
-            <DropdownMenuItem data-testid="button-account-team">Team</DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem data-testid="button-account-logout" className="text-destructive">
+            <DropdownMenuItem
+              data-testid="button-account-logout"
+              className="text-destructive"
+              onSelect={handleLogout}
+              disabled={logout.isPending}
+            >
               <LogOut className="mr-2 h-4 w-4" />
-              Log out
+              {logout.isPending ? "Signing out..." : "Log out"}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

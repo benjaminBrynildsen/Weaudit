@@ -19,7 +19,10 @@ services:
     # safe to run on every boot: push is a no-op when the schema matches,
     # and seed skips tables that already have rows.
     startCommand: npx drizzle-kit push --force && npm run db:seed && npm start
-    healthCheckPath: /
+    # /health is an unauthenticated liveness probe that doesn't touch the
+    # DB. The app root "/" renders the login page and redirects when
+    # already signed in, which confuses Render's healthcheck follower.
+    healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
@@ -33,3 +36,24 @@ services:
           property: connectionString
       - key: SESSION_SECRET
         generateValue: true
+      # Public URL the server uses to construct the OAuth callback.
+      # Must match the "Authorized redirect URI" you register in the
+      # Google Cloud Console (with /auth/google/callback appended).
+      - key: BASE_URL
+        value: https://weaudit.onrender.com
+      # Google Workspace domain allowed to sign in. Only accounts whose
+      # ID token `hd` claim equals this value pass the server-side gate.
+      - key: ALLOWED_EMAIL_DOMAIN
+        value: weaudit.com
+      # Comma-separated allowlist of individual emails that bypass the
+      # domain check (useful for developers / admins without a
+      # @weaudit.com Workspace account). Safe to edit in the dashboard.
+      - key: ALLOWED_EMAIL_OVERRIDES
+        value: benbrynildsen5757@gmail.com
+      # OAuth client credentials from Google Cloud Console. sync: false
+      # means you set these values in the Render dashboard, not in this
+      # file (so they never hit git).
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false

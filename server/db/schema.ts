@@ -143,6 +143,27 @@ export const notices = pgTable(
   }),
 );
 
+export const users = pgTable(
+  "users",
+  {
+    userId: uuid("user_id").primaryKey().defaultRandom(),
+    // Google's stable subject ID. Guaranteed unique per Google account
+    // and stable across email changes — so this, not email, is our
+    // identity anchor.
+    googleSub: text("google_sub").notNull(),
+    email: text("email").notNull(),
+    name: text("name").notNull(),
+    picture: text("picture"),
+    hd: text("hd"), // hosted domain, if the account is Google Workspace
+    createdAt: text("created_at").notNull(),
+    lastLoginAt: text("last_login_at").notNull(),
+  },
+  (t) => ({
+    byGoogleSub: index("idx_users_google_sub").on(t.googleSub),
+    byEmail: index("idx_users_email").on(t.email),
+  }),
+);
+
 export const companies = pgTable("companies", {
   companyId: uuid("company_id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
