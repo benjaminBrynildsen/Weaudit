@@ -200,8 +200,37 @@ export async function runAuditScan(auditId: string): Promise<void> {
     }
     dedupedDowngrades.push(...Array.from(dgMap.values()));
 
+    // Step 9.5: Tax-exempt filter. Some downgrade rule reasons end with
+    // an explicit "(Unless Tax Exempt)" carveout — those categories do
+    // NOT downgrade for tax-exempt merchants. Other rules mention tax-
+    // exempt as one of several possible causes ("Tax Exempt Transaction
+    // or Missing Level II Information") — those findings still apply
+    // to tax-exempt merchants, so we leave them alone. When the matched
+    // company is flagged tax-exempt, drop only the "Unless Tax Exempt"
+    // findings so the report lines up with the manual auditor.
+    const taxExemptCarveout = /\(?\s*unless\s+tax[\s-]*exempt\s*\)?/i;
+    let suppressedForTaxExempt = 0;
+    const finalDowngrades = matchedCompany?.taxExempt
+      ? dedupedDowngrades.filter((d) => {
+          if (taxExemptCarveout.test(d.reason)) {
+            suppressedForTaxExempt += 1;
+            return false;
+          }
+          return true;
+        })
+      : dedupedDowngrades;
+
+    if (suppressedForTaxExempt > 0) {
+      await storage.createNotice({
+        auditId,
+        type: "tax_exempt_filtered",
+        amount: 0,
+        message: `Suppressed ${suppressedForTaxExempt} downgrade finding(s) because the matched company (${matchedCompany?.name}) is flagged tax-exempt. These categories are legitimate charges for tax-exempt merchants.`,
+      });
+    }
+
     // Step 10: Score & Prioritize
-    const allDetections = [...nonPciResults, ...serviceChargeResults, ...dedupedDowngrades, ...paddingResults, ...unknownResults];
+    const allDetections = [...nonPciResults, ...serviceChargeResults, ...finalDowngrades, ...paddingResults, ...unknownResults];
     const prioritized = scoreAndPrioritize(allDetections);
 
     // Step 11: Save findings
