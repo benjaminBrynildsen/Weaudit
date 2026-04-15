@@ -1,21 +1,28 @@
 import { useLocation } from "wouter";
+import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
-import { ShieldCheck, ArrowRight, Lock } from "lucide-react";
-import { useState } from "react";
+import { ShieldCheck, Lock, AlertCircle } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function Landing() {
   const [, setLocation] = useLocation();
-  const [loading, setLoading] = useState(false);
+  const { isAuthenticated, isLoading } = useAuth();
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setTimeout(() => {
+  // If an already-signed-in user hits the landing page, bounce them to
+  // the dashboard. Wait for the initial /auth/me fetch before deciding.
+  useEffect(() => {
+    if (!isLoading && isAuthenticated) {
       setLocation("/dashboard");
-    }, 1000);
+    }
+  }, [isLoading, isAuthenticated, setLocation]);
+
+  // The server redirects failed logins to /login?error=<message>. We use
+  // the Landing page as /login too (see App.tsx routing).
+  const errorMessage = new URLSearchParams(window.location.search).get("error");
+
+  const handleGoogleSignIn = () => {
+    // Full-page nav — OAuth flow requires leaving the SPA anyway.
+    window.location.href = "/auth/google";
   };
 
   return (
@@ -29,7 +36,7 @@ export default function Landing() {
             <div className="w-10 h-10 rounded-xl bg-sidebar-primary flex items-center justify-center text-sidebar-primary-foreground">
               <ShieldCheck className="w-6 h-6" />
             </div>
-            <span>weAudit</span>
+            <span>AutoAudit</span>
           </div>
 
           <h1 className="font-heading text-4xl lg:text-6xl font-bold leading-tight mb-6">
@@ -57,60 +64,53 @@ export default function Landing() {
         <div className="w-full max-w-md space-y-8">
           <div className="text-center lg:text-left">
             <h2 className="text-2xl font-bold font-heading tracking-tight">Welcome back</h2>
-            <p className="text-muted-foreground mt-2">Enter your credentials to access your workspace.</p>
+            <p className="text-muted-foreground mt-2">
+              Sign in with your Weaudit Google account to access your workspace.
+            </p>
           </div>
 
-          <form onSubmit={handleLogin} className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email address</Label>
-              <Input
-                data-testid="input-email"
-                id="email"
-                type="email"
-                placeholder="name@company.com"
-                required
-                className="h-11"
-              />
+          {errorMessage && (
+            <div className="flex items-start gap-3 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span data-testid="text-login-error">{errorMessage}</span>
             </div>
+          )}
 
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="password">Password</Label>
-                <a data-testid="link-forgot-password" href="#" className="text-sm font-medium text-primary hover:underline">
-                  Forgot password?
-                </a>
-              </div>
-              <Input data-testid="input-password" id="password" type="password" required className="h-11" />
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <Checkbox data-testid="checkbox-remember" id="remember" />
-              <label
-                htmlFor="remember"
-                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-              >
-                Remember me for 30 days
-              </label>
-            </div>
-
-            <Button data-testid="button-signin" type="submit" className="w-full h-11 text-base group" disabled={loading}>
-              {loading ? "Signing in..." : "Sign in"}
-              {!loading && <ArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-1 transition-transform" />}
-            </Button>
-          </form>
+          <Button
+            data-testid="button-signin-google"
+            type="button"
+            onClick={handleGoogleSignIn}
+            variant="outline"
+            className="w-full h-11 text-base gap-3 bg-white text-gray-900 hover:bg-gray-50 border-gray-200"
+          >
+            <GoogleIcon className="w-5 h-5" />
+            Sign in with Google
+          </Button>
 
           <div className="text-center text-sm text-muted-foreground pt-4">
             <div className="flex items-center justify-center gap-2 mb-4">
               <Lock className="w-4 h-4" />
               <span data-testid="text-security-note">Bank-grade security & encryption</span>
             </div>
-            <span>Don't have an account? </span>
-            <a data-testid="link-request-access" href="#" className="font-medium text-primary hover:underline">
-              Request access
+            <span>Don't have access? </span>
+            <a data-testid="link-request-access" href="mailto:support@weaudit.com" className="font-medium text-primary hover:underline">
+              Contact your admin
             </a>
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+function GoogleIcon({ className }: { className?: string }) {
+  // Official Google "G" mark — viewbox 0 0 48 48.
+  return (
+    <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" aria-hidden="true">
+      <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/>
+      <path fill="#FF3D00" d="m6.306 14.691 6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/>
+      <path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0 1 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/>
+      <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 0 1-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/>
+    </svg>
   );
 }

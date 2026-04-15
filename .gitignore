@@ -4,6 +4,7 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+backups/
 
 # Runtime uploads (local only; migrate to object storage)
 uploads/

@@ -1,6 +1,12 @@
 import fs from "fs";
-import { createRequire } from "module";
-const require = createRequire(import.meta.url);
+
+// pdf-parse@2 is CJS; we require() it here rather than using ESM
+// import syntax + createRequire(import.meta.url). The latter breaks
+// because esbuild bundles this server to CJS (format: "cjs" in
+// script/build.ts), and in CJS `import.meta.url` evaluates to
+// undefined at runtime, causing createRequire(undefined) to throw.
+// The native CJS `require` is already available in the bundled output.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { PDFParse } = require("pdf-parse");
 
 export interface ParsedPage {
