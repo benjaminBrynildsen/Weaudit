@@ -14,7 +14,7 @@
 
 import { storage } from "../storage";
 
-const isos = [
+export const isos = [
   { name: "Fiserv", aliases: ["First Data"] },
   { name: "CardConnect", aliases: ["CardPointe"] },
   { name: "North Summit", aliases: ["NS"] },
@@ -69,7 +69,7 @@ const l2Rules: RuleSeed[] = [
   { brand: "M", name: "CORP DATA RATE I (US) BUS", rate: 2.65, reason: "Missing Multiple Data Fields or Tax Exempt Transaction", targetRate: 1.90, levelTags: ["II"], keywords: ["DATA RATE 1", "CORP", "BUS"] },
   { brand: "M", name: "CORP DATA RATE I (US) CORP", rate: 2.70, reason: "Missing billing address/zip code/invoice number/sales tax Information / Could have cleared at Data II", targetRate: 2.10, levelTags: ["II"], keywords: ["DATA RATE 1", "CORP"] },
   { brand: "M", name: "CORP DATA RATE (1) PUR", rate: 2.70, reason: "Missing billing address/zip code/invoice number/sales tax Information / Could have cleared at Data II", targetRate: 2.50, levelTags: ["II"], keywords: ["DATA RATE 1", "PUR"] },
-  { brand: "M", name: "COM DATA RATE 1 FLT NFUEL", rate: 2.70, reason: "Missing billing address/zip code/invoice number/sales tax Information / Could have cleared at Data II", targetRate: 2.50, levelTags: ["II"], keywords: ["DATA RATE 1", "FLT", "NFUEL"] },
+  { brand: "M", name: "COM DATA RATE 1 FLT NFUEL", rate: 2.70, reason: "Missing billing address/zip code/invoice number/sales tax Information / Could have cleared at Data II", targetRate: 2.05, levelTags: ["II"], keywords: ["DATA RATE 1", "FLT", "NFUEL"] },
   { brand: "M", name: "LARGE MARKET DATA RATE I", rate: 2.70, reason: "Missing billing address/zip code/invoice number/sales tax Information / Could have cleared at Data II", targetRate: 2.50, levelTags: ["II"], keywords: ["LARGE MARKET", "DATA RATE 1"] },
   { brand: "M", name: "BUS LEVEL 1 DATA RATE 1", rate: 2.65, reason: "Tax Exempt Transaction or Missing Data Rate II Information - Level I Merchant", targetRate: 1.90, levelTags: ["II"], keywords: ["BUS", "LEVEL 1", "DATA RATE 1"] },
   { brand: "M", name: "BUS LEVEL 2 DATA RATE 1", rate: 2.80, reason: "Tax Exempt Transaction or Missing Data Rate II Information - Level 2 Merchant", targetRate: 2.05, levelTags: ["II"], keywords: ["BUS", "LEVEL 2", "DATA RATE 1"] },
@@ -133,7 +133,7 @@ const l3Rules: RuleSeed[] = [
   { brand: "M", name: "BUSINESS LEVEL 5 STANDARD", rate: 3.30, reason: "Tax Exempt Transaction or Missing Multiple Data Fields - Level 5 Merchant", targetRate: 2.25, levelTags: ["III"], keywords: ["BUS", "LEVEL 5", "STANDARD"] },
 ];
 
-const rules: RuleSeed[] = [...l2Rules, ...l3Rules];
+export const rules: RuleSeed[] = [...l2Rules, ...l3Rules];
 
 export async function seed() {
   console.log("Seeding via postgres backend...");
