@@ -59,6 +59,7 @@ type RunResult = {
 async function runOne(
   pdfPath: string,
   gatewayLevel: "II" | "III" | undefined,
+  taxExempt: boolean,
 ): Promise<RunResult> {
   const { pages, fullText } = await parsePdf(pdfPath);
 
@@ -86,12 +87,19 @@ async function runOne(
     rules = rules.filter((r) => r.levelTags.includes(gatewayLevel));
   }
 
-  const { results: downgrades } = detectDowngrades(
+  const { results: downgradesRaw } = detectDowngrades(
     interchangeLines,
     rules,
     nonPciIndices,
     processorName,
   );
+
+  // Mirror runner.ts Step 9.5 — drop findings whose rule reason has an
+  // explicit "(Unless Tax Exempt)" carveout when the merchant is flagged.
+  const taxExemptCarveout = /\(?\s*unless\s+tax[\s-]*exempt\s*\)?/i;
+  const downgrades = taxExempt
+    ? downgradesRaw.filter((d) => !taxExemptCarveout.test(d.reason))
+    : downgradesRaw;
 
   // Aggregate downgrades by rule name to match weAudit's report layout.
   const groups = new Map<
@@ -201,7 +209,15 @@ async function main() {
     | "II"
     | "III"
     | undefined;
-  const fileArgs = argv.filter((a) => a !== "II" && a !== "III" && a !== "--all");
+  const taxExempt = argv.includes("--tax-exempt") || argv.includes("--taxExempt");
+  const fileArgs = argv.filter(
+    (a) =>
+      a !== "II" &&
+      a !== "III" &&
+      a !== "--all" &&
+      a !== "--tax-exempt" &&
+      a !== "--taxExempt",
+  );
 
   const targets: string[] = argv.includes("--all")
     ? findStatements("Test Files")
@@ -214,7 +230,7 @@ async function main() {
 
   for (const t of targets) {
     try {
-      const result = await runOne(t, levelArg);
+      const result = await runOne(t, levelArg, taxExempt);
       printResult(result);
     } catch (err) {
       console.error(`\n!! Failed on ${t}:`, (err as Error).message);

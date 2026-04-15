@@ -143,6 +143,7 @@ export interface Company {
   riskLevel: string;
   adjustedEffectiveRate: number;
   actualOldEffectiveRate: number;
+  taxExempt: boolean;
 }
 
 export interface IStorage {

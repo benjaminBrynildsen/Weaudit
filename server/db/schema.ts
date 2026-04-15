@@ -196,4 +196,5 @@ export const companies = pgTable("companies", {
   riskLevel: text("risk_level").notNull(),
   adjustedEffectiveRate: real("adjusted_effective_rate").notNull(),
   actualOldEffectiveRate: real("actual_old_effective_rate").notNull(),
+  taxExempt: boolean("tax_exempt").notNull().default(false),
 });

@@ -77,6 +77,7 @@ const EMPTY_FORM: Omit<Company, "companyId" | "createdAt" | "updatedAt"> = {
   riskLevel: "",
   adjustedEffectiveRate: 0,
   actualOldEffectiveRate: 0,
+  taxExempt: false,
 };
 
 function riskBadge(level: string) {
@@ -625,6 +626,18 @@ export default function Companies() {
                     value={form.actualOldEffectiveRate}
                     onChange={(e) => setField("actualOldEffectiveRate", parseFloat(e.target.value) || 0)}
                   />
+                </div>
+                <div className="space-y-1.5 flex items-center gap-3 pt-6 sm:col-span-2">
+                  <input
+                    id="tax-exempt"
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-input"
+                    checked={!!form.taxExempt}
+                    onChange={(e) => setField("taxExempt", e.target.checked)}
+                  />
+                  <Label htmlFor="tax-exempt" className="cursor-pointer">
+                    Tax Exempt — suppress downgrade findings whose rule is conditional on tax-exempt status
+                  </Label>
                 </div>
               </div>
             </div>
