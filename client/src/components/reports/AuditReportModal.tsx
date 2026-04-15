@@ -54,7 +54,16 @@ function ModalPDFPreview({ document }: { document: React.ReactElement }) {
 export default function AuditReportModal({ open, onOpenChange, data }: Props) {
   const document = useMemo(() => <AuditReportDocument data={data} />, [data]);
 
-  const fileName = `${data.merchant.replace(/\s+/g, "-")}-${data.statementMonth}-${data.auditId}.pdf`.toLowerCase();
+  // Match the manual audit filename format used in Test Files/:
+  //   "{Client Name} {MID last 4} {Month} {Year} Audit.pdf"
+  // MID segment is omitted when the merchant doesn't have a MID on file.
+  const fileName = (() => {
+    const merchant = data.merchant.replace(/[\\/]+/g, " ").trim();
+    const midDigits = (data.mid || "").replace(/\D/g, "");
+    const midSegment = midDigits.length >= 4 ? ` ${midDigits.slice(-4)}` : "";
+    const month = data.statementMonth.trim();
+    return `${merchant}${midSegment} ${month} Audit.pdf`.replace(/\s+/g, " ");
+  })();
 
   const download = async () => {
     const blob = await pdf(document).toBlob();
