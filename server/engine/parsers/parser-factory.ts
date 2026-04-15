@@ -1,6 +1,8 @@
 import { BaseStatementParser } from './base-parser';
 import { GenericParser } from './generic-parser';
 import { FiservParser } from './fiserv-parser';
+import { AuditReportParser } from './audit-report-parser';
+import type { ParsedPage } from '../parser';
 
 /**
  * Factory for creating processor-specific statement parsers
@@ -25,25 +27,21 @@ export class StatementParserFactory {
       return new FiservParser({ processorName });
     }
 
-    // Future processors can be added here:
-    //
-    // CardConnect
-    // if (/cardconnect|cardpointe/i.test(normalized)) {
-    //   return new CardConnectParser({ processorName });
-    // }
-    //
-    // Elavon / US Bank
-    // if (/elavon|us[\s-]*bank/i.test(normalized)) {
-    //   return new ElavonParser({ processorName });
-    // }
-    //
-    // Worldpay
-    // if (/worldpay|world[\s-]*pay/i.test(normalized)) {
-    //   return new WorldpayParser({ processorName });
-    // }
-
     // Default to generic parser for unknown processors
     console.log(`  → Using GenericParser for ${processorName}`);
     return new GenericParser({ processorName });
+  }
+
+  /**
+   * Detect if the PDF is an internal audit report and return the appropriate parser.
+   * Call this before createParser() — if it returns a parser, use it instead.
+   */
+  static detectAuditReport(pages: ParsedPage[]): AuditReportParser | null {
+    const fullText = pages.map(p => p.text).join("\n");
+    if (AuditReportParser.isAuditReport(fullText)) {
+      console.log("  → Detected internal audit report PDF — using AuditReportParser");
+      return new AuditReportParser({ processorName: 'WeAudit Report' });
+    }
+    return null;
   }
 }

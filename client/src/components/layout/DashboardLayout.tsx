@@ -4,6 +4,7 @@ import { useAuth, useLogout } from "@/hooks/useAuth";
 import {
   LayoutDashboard,
   FileText,
+  Files,
   AlertTriangle,
   Building2,
   CalendarClock,
@@ -62,6 +63,7 @@ function Sidebar({ collapsed }: SidebarProps) {
 
   const navItems = [
     { icon: LayoutDashboard, label: "Statements", href: "/dashboard" },
+    { icon: Files, label: "Bulk Audit", href: "/bulk-audit" },
     { icon: CalendarClock, label: "History", href: "/history" },
     { icon: Building2, label: "Companies", href: "/companies" },
     { icon: BarChart3, label: "Reports", href: "/reports" },

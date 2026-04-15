@@ -14,6 +14,7 @@ import Settings from "@/pages/Settings";
 import Review from "./pages/Review";
 import Report from "@/pages/Report";
 import Companies from "@/pages/Companies";
+import BulkAudit from "@/pages/BulkAudit";
 import { useAuth } from "@/hooks/useAuth";
 
 function Protected({ children }: { children: ReactNode }) {
@@ -41,6 +42,9 @@ function Router() {
       </Route>
       <Route path="/upload">
         <Protected><Upload /></Protected>
+      </Route>
+      <Route path="/bulk-audit">
+        <Protected><BulkAudit /></Protected>
       </Route>
       <Route path="/history">
         <Protected><History /></Protected>

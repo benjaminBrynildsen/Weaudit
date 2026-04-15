@@ -22,12 +22,13 @@ export interface Audit {
   dba?: string;
   statementPeriod?: string;
   processorDetected?: string;
+  gatewayLevel?: "II" | "III";
 }
 
 export interface Finding {
   findingId: string;
   auditId: string;
-  type: "non_pci" | "downgrade" | "padding" | "unknown";
+  type: "non_pci" | "downgrade" | "padding" | "unknown" | "service_charge";
   title: string;
   category: string;
   rawLine: string;
@@ -55,6 +56,8 @@ export interface DowngradeRule {
   levelTags: string[];
   keywords: string[];
   enabled: boolean;
+  createdAt?: string;
+  lastMatchedAt?: string;
 }
 
 export interface ProcessorISO {
@@ -76,6 +79,7 @@ export interface Notice {
 export interface Company {
   companyId: string;
   name: string;
+  mid: string;
   createdAt: string;
   updatedAt: string;
   auditLevel: string;

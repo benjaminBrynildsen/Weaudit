@@ -5,3 +5,19 @@ server/public
 vite.config.ts.*
 *.tar.gz
 backups/
+
+# Runtime uploads (local only; migrate to object storage)
+uploads/
+
+# Confidential customer statements / test fixtures
+attached_assets/
+Test Files/
+
+# Bulky training corpus (not sensitive, just huge)
+docs/training/
+
+# Session summary / working notes (not canonical docs)
+/ABBREVIATION_SYSTEM_SUMMARY.md
+/BUGFIX_SUMMARY.md
+/IMPLEMENTATION_CHECKLIST.md
+docs/SESSION_LOG.md

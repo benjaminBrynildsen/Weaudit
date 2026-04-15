@@ -1,10 +1,23 @@
 import DashboardLayout from "@/components/layout/DashboardLayout";
+import {
+  useDowngradeRules,
+  useProcessorISOs,
+  useCreateDowngradeRule,
+  useUpdateDowngradeRule,
+  useDeleteDowngradeRule,
+  useCreateProcessorISO,
+  useUpdateProcessorISO,
+  useDeleteProcessorISO,
+} from "@/lib/api";
+import type { DowngradeRule, ProcessorISO } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertTriangle,
@@ -16,206 +29,41 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 
-type ProcessorISO = {
-  id: string;
-  name: string;
-  aliases: string[];
-  enabled: boolean;
-};
-
-type DowngradeRule = {
-  id: string;
-  brand: "V" | "M";
-  name: string;
-  rate: number;
-  levelTags: Array<"II" | "III">;
-  keywords: string[];
-  enabled: boolean;
-};
-
-const initialIsos: ProcessorISO[] = [
-  { id: "iso-fiserv", name: "Fiserv", aliases: ["First Data"], enabled: true },
-  { id: "iso-cardconnect", name: "CardConnect", aliases: ["CardPointe"], enabled: true },
-  { id: "iso-north-summit", name: "North Summit", aliases: ["NS"], enabled: true },
-  { id: "iso-cocard", name: "CoCard", aliases: ["Co Card"], enabled: true },
-  { id: "iso-cardone", name: "Cardone", aliases: ["Card One"], enabled: true },
-  { id: "iso-boa", name: "Bank of America", aliases: ["BOA", "BofA"], enabled: true },
-  { id: "iso-wf", name: "Wells Fargo", aliases: ["WF"], enabled: true },
-  { id: "iso-versapay", name: "VersaPay", aliases: ["Versa Pay"], enabled: true },
-  { id: "iso-solupay", name: "Solupay", aliases: ["Solu Pay"], enabled: true },
-  { id: "iso-pnc-key", name: "PNC / KeyBank", aliases: ["PNC", "KeyBank"], enabled: true },
-];
+/** Numeric input that allows intermediate values like "1." or "0.0" while editing */
+function NumericInput({
+  value,
+  onCommit,
+  ...props
+}: { value: number; onCommit: (n: number) => void } & Omit<React.ComponentProps<typeof Input>, "value" | "onChange" | "onBlur">) {
+  const [raw, setRaw] = useState(String(value));
+  const committed = useRef(value);
+  useEffect(() => {
+    // Only sync from outside if the committed value changed externally
+    if (value !== committed.current) {
+      committed.current = value;
+      setRaw(String(value));
+    }
+  }, [value]);
+  return (
+    <Input
+      {...props}
+      value={raw}
+      onChange={(e) => setRaw(e.target.value)}
+      onBlur={() => {
+        const n = Number(raw);
+        const final = Number.isFinite(n) ? n : 0;
+        committed.current = final;
+        onCommit(final);
+        setRaw(String(final));
+      }}
+    />
+  );
+}
 
 const baseKeywordsLevelII = ["EIRF", "STANDARD", "STD", "NON QUAL", "NON-QUAL", "PRODUCT 1", "CNP", "DATA RATE 1"];
 const baseKeywordsLevelIII = ["DATA RATE 2", "LEVEL II"];
-
-const initialRules: DowngradeRule[] = [
-  {
-    id: "r-v-eirf-non-cps-all-other",
-    brand: "V",
-    name: "EIRF NON CPS ALL OTHER",
-    rate: 2.3,
-    levelTags: ["II", "III"],
-    keywords: ["EIRF", "NON CPS", "ALL OTHER"],
-    enabled: true,
-  },
-  {
-    id: "r-v-eirf-non-cps-all-other-db",
-    brand: "V",
-    name: "EIRF NON CPS ALL OTHER (DB)",
-    rate: 1.75,
-    levelTags: ["II", "III"],
-    keywords: ["EIRF", "DB", "NON CPS"],
-    enabled: true,
-  },
-  {
-    id: "r-v-standard",
-    brand: "V",
-    name: "Standard",
-    rate: 2.95,
-    levelTags: ["II", "III"],
-    keywords: ["STANDARD", "STD"],
-    enabled: true,
-  },
-  {
-    id: "r-v-nonqual-corp-credit",
-    brand: "V",
-    name: "Non-Qual Corp Credit",
-    rate: 2.95,
-    levelTags: ["II", "III"],
-    keywords: ["NON QUAL", "CORP", "CREDIT"],
-    enabled: true,
-  },
-  {
-    id: "r-v-nonqual-crp-data",
-    brand: "V",
-    name: "Non-Qual CRP Data",
-    rate: 2.95,
-    levelTags: ["II", "III"],
-    keywords: ["NON QUAL", "CRP", "DATA"],
-    enabled: true,
-  },
-  {
-    id: "r-v-nonqual-purch-credit",
-    brand: "V",
-    name: "Non-Qual Purch Credit",
-    rate: 2.95,
-    levelTags: ["II", "III"],
-    keywords: ["NON QUAL", "PURCH", "CREDIT"],
-    enabled: true,
-  },
-  {
-    id: "r-v-nonqual-purch-data",
-    brand: "V",
-    name: "Non-Qual Purch Data",
-    rate: 2.95,
-    levelTags: ["II", "III"],
-    keywords: ["NON QUAL", "PURCH", "DATA"],
-    enabled: true,
-  },
-  {
-    id: "r-v-nonqual-biz-credit",
-    brand: "V",
-    name: "Non-Qual Business Credit",
-    rate: 3.15,
-    levelTags: ["II", "III"],
-    keywords: ["NON QUAL", "BUSINESS", "CREDIT"],
-    enabled: true,
-  },
-  {
-    id: "r-v-nonqual-consumer-data",
-    brand: "V",
-    name: "Non-Qual Consumer Data",
-    rate: 2.7,
-    levelTags: ["II", "III"],
-    keywords: ["NON QUAL", "CONSUMER", "DATA"],
-    enabled: true,
-  },
-  {
-    id: "r-v-nonqual-consumer-credit",
-    brand: "V",
-    name: "Non-Qual Consumer Credit",
-    rate: 3.15,
-    levelTags: ["II", "III"],
-    keywords: ["NON QUAL", "CONSUMER", "CREDIT"],
-    enabled: true,
-  },
-  {
-    id: "r-v-business-t1-product1",
-    brand: "V",
-    name: "Business T1 Product 1",
-    rate: 2.65,
-    levelTags: ["II", "III"],
-    keywords: ["BUSINESS", "T1", "PRODUCT 1"],
-    enabled: true,
-  },
-  {
-    id: "r-v-corporate-card-cnp",
-    brand: "V",
-    name: "CORPORATE CARD CNP",
-    rate: 2.7,
-    levelTags: ["II", "III"],
-    keywords: ["CORPORATE", "CNP"],
-    enabled: true,
-  },
-  {
-    id: "r-v-purch-card-cnp",
-    brand: "V",
-    name: "PURCHASING CARD CNP",
-    rate: 2.7,
-    levelTags: ["II", "III"],
-    keywords: ["PURCHASING", "CNP"],
-    enabled: true,
-  },
-  {
-    id: "r-v-purch-level2",
-    brand: "V",
-    name: "PURCHASING LEVEL II",
-    rate: 2.5,
-    levelTags: ["II", "III"],
-    keywords: ["PURCHASING", "LEVEL II"],
-    enabled: true,
-  },
-
-  {
-    id: "r-m-business-card-std",
-    brand: "M",
-    name: "BUSINESS CARD STD",
-    rate: 3.15,
-    levelTags: ["II", "III"],
-    keywords: ["BUSINESS", "STD"],
-    enabled: true,
-  },
-  {
-    id: "r-m-corp-data-rate-1-us-bus",
-    brand: "M",
-    name: "CORP DATA RATE I (US) BUS",
-    rate: 2.65,
-    levelTags: ["II", "III"],
-    keywords: ["DATA RATE 1", "CORP", "BUS"],
-    enabled: true,
-  },
-  {
-    id: "r-m-corp-data-rate-ii-us-corp",
-    brand: "M",
-    name: "CORP DATA RATE II (US) CORP",
-    rate: 2.5,
-    levelTags: ["III"],
-    keywords: ["DATA RATE 2", "CORP"],
-    enabled: true,
-  },
-  {
-    id: "r-m-business-level-5-standard",
-    brand: "M",
-    name: "BUSINESS LEVEL 5 STANDARD",
-    rate: 3.3,
-    levelTags: ["III"],
-    keywords: ["BUSINESS", "LEVEL 5", "STANDARD"],
-    enabled: true,
-  },
-];
 
 function chip(text: string) {
   return (
@@ -231,8 +79,18 @@ function chip(text: string) {
 export default function Review() {
   const [isoQuery, setIsoQuery] = useState("");
   const [ruleQuery, setRuleQuery] = useState("");
-  const [isos, setIsos] = useState<ProcessorISO[]>(initialIsos);
-  const [rules, setRules] = useState<DowngradeRule[]>(initialRules);
+  const [levelFilter, setLevelFilter] = useState<"all" | "II" | "III">("all");
+
+  const { data: isos = [], isLoading: isLoadingIsos } = useProcessorISOs();
+  const { data: rules = [], isLoading: isLoadingRules } = useDowngradeRules();
+
+  const createIsoMutation = useCreateProcessorISO();
+  const updateIsoMutation = useUpdateProcessorISO();
+  const deleteIsoMutation = useDeleteProcessorISO();
+
+  const createRuleMutation = useCreateDowngradeRule();
+  const updateRuleMutation = useUpdateDowngradeRule();
+  const deleteRuleMutation = useDeleteDowngradeRule();
 
   const [editingIsoId, setEditingIsoId] = useState<string | null>(null);
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
@@ -249,62 +107,72 @@ export default function Review() {
 
   const filteredRules = useMemo(() => {
     const q = ruleQuery.trim().toLowerCase();
-    if (!q) return rules;
     return rules.filter((r) => {
-      const hay = `${r.brand} ${r.name} ${r.rate} ${r.keywords.join(" ")}`.toLowerCase();
+      if (levelFilter !== "all" && !r.levelTags.includes(levelFilter)) return false;
+      if (!q) return true;
+      const hay = `${r.brand} - ${r.name} ${r.brand} ${r.name} ${r.rate} ${r.keywords.join(" ")}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [ruleQuery, rules]);
+  }, [ruleQuery, rules, levelFilter]);
 
   const enabledRuleCount = useMemo(() => rules.filter((r) => r.enabled).length, [rules]);
   const enabledIsoCount = useMemo(() => isos.filter((i) => i.enabled).length, [isos]);
 
-  const toggleIso = (id: string) => {
-    setIsos((prev) => prev.map((i) => (i.id === id ? { ...i, enabled: !i.enabled } : i)));
+  const toggleIso = (iso: ProcessorISO) => {
+    updateIsoMutation.mutate({ isoId: iso.isoId, enabled: !iso.enabled });
   };
 
-  const toggleRule = (id: string) => {
-    setRules((prev) => prev.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r)));
+  const toggleRule = (rule: DowngradeRule) => {
+    updateRuleMutation.mutate({ ruleId: rule.ruleId, enabled: !rule.enabled });
   };
 
-  const updateIso = (id: string, patch: Partial<ProcessorISO>) => {
-    setIsos((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
+  const updateIso = (isoId: string, patch: Partial<ProcessorISO>) => {
+    updateIsoMutation.mutate({ isoId, ...patch });
   };
 
-  const updateRule = (id: string, patch: Partial<DowngradeRule>) => {
-    setRules((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  const updateRule = (ruleId: string, patch: Partial<DowngradeRule>) => {
+    updateRuleMutation.mutate({ ruleId, ...patch });
   };
 
   const addIso = () => {
-    const id = `iso-${Math.random().toString(16).slice(2)}`;
-    const created: ProcessorISO = { id, name: "New ISO", aliases: [], enabled: true };
-    setIsos((prev) => [created, ...prev]);
-    setEditingIsoId(id);
+    createIsoMutation.mutate(
+      { name: "New ISO", aliases: [], enabled: true },
+      {
+        onSuccess: (created: ProcessorISO) => {
+          setEditingIsoId(created.isoId);
+        },
+      },
+    );
   };
 
   const addRule = () => {
-    const id = `r-${Math.random().toString(16).slice(2)}`;
-    const created: DowngradeRule = {
-      id,
-      brand: "V",
-      name: "New downgrade",
-      rate: 0,
-      levelTags: ["II"],
-      keywords: ["KEYWORD"],
-      enabled: true,
-    };
-    setRules((prev) => [created, ...prev]);
-    setEditingRuleId(id);
+    createRuleMutation.mutate(
+      {
+        brand: "V",
+        name: "New downgrade",
+        rate: 0,
+        reason: "",
+        targetRate: 0,
+        levelTags: ["II"],
+        keywords: ["KEYWORD"],
+        enabled: true,
+      },
+      {
+        onSuccess: (created: DowngradeRule) => {
+          setEditingRuleId(created.ruleId);
+        },
+      },
+    );
   };
 
-  const deleteIso = (id: string) => {
-    setIsos((prev) => prev.filter((i) => i.id !== id));
-    if (editingIsoId === id) setEditingIsoId(null);
+  const deleteIso = (isoId: string) => {
+    deleteIsoMutation.mutate(isoId);
+    if (editingIsoId === isoId) setEditingIsoId(null);
   };
 
-  const deleteRule = (id: string) => {
-    setRules((prev) => prev.filter((r) => r.id !== id));
-    if (editingRuleId === id) setEditingRuleId(null);
+  const deleteRule = (ruleId: string) => {
+    deleteRuleMutation.mutate(ruleId);
+    if (editingRuleId === ruleId) setEditingRuleId(null);
   };
 
   const levelKeywordPreview = (tags: DowngradeRule["levelTags"]) => {
@@ -312,6 +180,21 @@ export default function Review() {
     if (tags.includes("III")) base.push(...baseKeywordsLevelIII);
     return base.slice(0, 8);
   };
+
+  const isLoading = isLoadingIsos || isLoadingRules;
+
+  if (isLoading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="flex flex-col items-center gap-3">
+            <Spinner className="size-8" />
+            <p className="text-sm text-muted-foreground">Loading admin data...</p>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>
@@ -382,18 +265,18 @@ export default function Review() {
 
               <div className="space-y-2">
                 {filteredIsos.map((iso) => {
-                  const isEditing = editingIsoId === iso.id;
+                  const isEditing = editingIsoId === iso.isoId;
                   return (
                     <div
-                      key={iso.id}
+                      key={iso.isoId}
                       className="rounded-xl border border-border bg-secondary/10 p-4 transition-colors hover:bg-secondary/15"
-                      data-testid={`card-iso-${iso.id}`}
+                      data-testid={`card-iso-${iso.isoId}`}
                     >
                       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 min-w-0">
                             <Badge
-                              data-testid={`badge-iso-enabled-${iso.id}`}
+                              data-testid={`badge-iso-enabled-${iso.isoId}`}
                               variant="outline"
                               className={
                                 iso.enabled
@@ -403,12 +286,12 @@ export default function Review() {
                             >
                               {iso.enabled ? "Enabled" : "Disabled"}
                             </Badge>
-                            <p data-testid={`text-iso-name-${iso.id}`} className="font-semibold truncate">
+                            <p data-testid={`text-iso-name-${iso.isoId}`} className="font-semibold truncate">
                               {iso.name}
                             </p>
                           </div>
 
-                          <div className="mt-2 flex flex-wrap gap-2" data-testid={`list-iso-aliases-${iso.id}`}>
+                          <div className="mt-2 flex flex-wrap gap-2" data-testid={`list-iso-aliases-${iso.isoId}`}>
                             {iso.aliases.length === 0 ? (
                               <span className="text-xs text-muted-foreground">No aliases</span>
                             ) : (
@@ -421,18 +304,18 @@ export default function Review() {
                               <div className="space-y-2">
                                 <Label>Display name</Label>
                                 <Input
-                                  data-testid={`input-iso-name-${iso.id}`}
+                                  data-testid={`input-iso-name-${iso.isoId}`}
                                   value={iso.name}
-                                  onChange={(e) => updateIso(iso.id, { name: e.target.value })}
+                                  onChange={(e) => updateIso(iso.isoId, { name: e.target.value })}
                                 />
                               </div>
                               <div className="space-y-2">
                                 <Label>Aliases (comma separated)</Label>
                                 <Input
-                                  data-testid={`input-iso-aliases-${iso.id}`}
+                                  data-testid={`input-iso-aliases-${iso.isoId}`}
                                   value={iso.aliases.join(", ")}
                                   onChange={(e) =>
-                                    updateIso(iso.id, {
+                                    updateIso(iso.isoId, {
                                       aliases: e.target.value
                                         .split(",")
                                         .map((s) => s.trim())
@@ -448,28 +331,28 @@ export default function Review() {
 
                         <div className="flex items-center gap-2 shrink-0">
                           <Button
-                            data-testid={`button-iso-toggle-${iso.id}`}
+                            data-testid={`button-iso-toggle-${iso.isoId}`}
                             variant="outline"
                             className="h-9"
-                            onClick={() => toggleIso(iso.id)}
+                            onClick={() => toggleIso(iso)}
                           >
                             {iso.enabled ? "Disable" : "Enable"}
                           </Button>
 
                           <Button
-                            data-testid={`button-iso-edit-${iso.id}`}
+                            data-testid={`button-iso-edit-${iso.isoId}`}
                             variant={isEditing ? "default" : "outline"}
                             className="h-9"
-                            onClick={() => setEditingIsoId((v) => (v === iso.id ? null : iso.id))}
+                            onClick={() => setEditingIsoId((v) => (v === iso.isoId ? null : iso.isoId))}
                           >
                             <Pencil className="w-4 h-4 mr-2" /> {isEditing ? "Done" : "Edit"}
                           </Button>
 
                           <Button
-                            data-testid={`button-iso-delete-${iso.id}`}
+                            data-testid={`button-iso-delete-${iso.isoId}`}
                             variant="outline"
                             className="h-9 text-destructive hover:text-destructive"
-                            onClick={() => deleteIso(iso.id)}
+                            onClick={() => deleteIso(iso.isoId)}
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
@@ -514,6 +397,16 @@ export default function Review() {
                       className="pl-9"
                     />
                   </div>
+                  <Select value={levelFilter} onValueChange={(v) => setLevelFilter(v as "all" | "II" | "III")}>
+                    <SelectTrigger data-testid="select-level-filter" className="w-[120px] shrink-0">
+                      <SelectValue placeholder="Level" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All levels</SelectItem>
+                      <SelectItem value="II">Level II</SelectItem>
+                      <SelectItem value="III">Level III</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <Button data-testid="button-downgrade-add" onClick={addRule} className="shrink-0">
                     <Plus className="w-4 h-4 mr-2" /> Add
                   </Button>
@@ -524,18 +417,18 @@ export default function Review() {
 
               <div className="space-y-2">
                 {filteredRules.map((r) => {
-                  const isEditing = editingRuleId === r.id;
+                  const isEditing = editingRuleId === r.ruleId;
                   return (
                     <div
-                      key={r.id}
+                      key={r.ruleId}
                       className="rounded-xl border border-border bg-secondary/10 p-4 transition-colors hover:bg-secondary/15"
-                      data-testid={`card-downgrade-${r.id}`}
+                      data-testid={`card-downgrade-${r.ruleId}`}
                     >
                       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 flex-wrap">
                             <Badge
-                              data-testid={`badge-rule-enabled-${r.id}`}
+                              data-testid={`badge-rule-enabled-${r.ruleId}`}
                               variant="outline"
                               className={
                                 r.enabled
@@ -547,27 +440,27 @@ export default function Review() {
                             </Badge>
 
                             <Badge
-                              data-testid={`badge-rule-brand-${r.id}`}
+                              data-testid={`badge-rule-brand-${r.ruleId}`}
                               variant="outline"
                               className="text-[11px] bg-background/60 text-muted-foreground border-border"
                             >
                               {r.brand === "V" ? "Visa" : "Mastercard"}
                             </Badge>
 
-                            <p data-testid={`text-rule-name-${r.id}`} className="font-semibold">
+                            <p data-testid={`text-rule-name-${r.ruleId}`} className="font-semibold">
                               {r.brand} - {r.name}
                             </p>
 
                             <span className="text-xs text-muted-foreground">·</span>
 
-                            <p data-testid={`text-rule-rate-${r.id}`} className="font-mono text-xs">
+                            <p data-testid={`text-rule-rate-${r.ruleId}`} className="font-mono text-xs">
                               {r.rate.toFixed(2)}%
                             </p>
 
                             <span className="text-xs text-muted-foreground">·</span>
 
                             <Badge
-                              data-testid={`badge-rule-levels-${r.id}`}
+                              data-testid={`badge-rule-levels-${r.ruleId}`}
                               variant="outline"
                               className="text-[11px] bg-amber-500/10 text-amber-700 border-amber-500/20"
                             >
@@ -575,8 +468,42 @@ export default function Review() {
                             </Badge>
                           </div>
 
-                          <div className="mt-3 flex flex-wrap gap-2" data-testid={`list-rule-keywords-${r.id}`}>
+                          {r.reason && (
+                            <p className="mt-2 text-xs text-muted-foreground leading-relaxed" data-testid={`text-rule-reason-${r.ruleId}`}>
+                              {r.reason}
+                            </p>
+                          )}
+
+                          {r.targetRate != null && (
+                            <div className="mt-2 flex items-center gap-3">
+                              <span className="text-xs text-muted-foreground">Target rate:</span>
+                              <span className="font-mono text-xs font-semibold text-emerald-600" data-testid={`text-rule-target-${r.ruleId}`}>
+                                {(r.targetRate ?? 0).toFixed(2)}%
+                              </span>
+                              <span className="text-xs text-muted-foreground">Spread:</span>
+                              <span className="font-mono text-xs font-semibold text-amber-600">
+                                {((r.rate ?? 0) - (r.targetRate ?? 0)).toFixed(2)}%
+                              </span>
+                            </div>
+                          )}
+
+                          <div className="mt-3 flex flex-wrap gap-2" data-testid={`list-rule-keywords-${r.ruleId}`}>
                             {r.keywords.map((k) => chip(k))}
+                          </div>
+
+                          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+                            <span data-testid={`text-rule-created-${r.ruleId}`}>
+                              Added:{" "}
+                              <span className="font-medium text-foreground/80">
+                                {r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "—"}
+                              </span>
+                            </span>
+                            <span data-testid={`text-rule-last-matched-${r.ruleId}`}>
+                              Last matched:{" "}
+                              <span className="font-medium text-foreground/80">
+                                {r.lastMatchedAt ? new Date(r.lastMatchedAt).toLocaleString() : "never"}
+                              </span>
+                            </span>
                           </div>
 
                           {isEditing && (
@@ -591,21 +518,36 @@ export default function Review() {
                                 <div className="space-y-2">
                                   <Label>Name</Label>
                                   <Input
-                                    data-testid={`input-rule-name-${r.id}`}
+                                    data-testid={`input-rule-name-${r.ruleId}`}
                                     value={r.name}
-                                    onChange={(e) => updateRule(r.id, { name: e.target.value })}
+                                    onChange={(e) => updateRule(r.ruleId, { name: e.target.value })}
                                   />
                                 </div>
                                 <div className="space-y-2">
                                   <Label>Rate (%)</Label>
+                                  <NumericInput
+                                    data-testid={`input-rule-rate-${r.ruleId}`}
+                                    value={r.rate}
+                                    onCommit={(n) => updateRule(r.ruleId, { rate: n })}
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="grid sm:grid-cols-2 gap-3">
+                                <div className="space-y-2">
+                                  <Label>Reason</Label>
                                   <Input
-                                    data-testid={`input-rule-rate-${r.id}`}
-                                    value={String(r.rate)}
-                                    onChange={(e) =>
-                                      updateRule(r.id, {
-                                        rate: Number.isFinite(Number(e.target.value)) ? Number(e.target.value) : 0,
-                                      })
-                                    }
+                                    data-testid={`input-rule-reason-${r.ruleId}`}
+                                    value={r.reason}
+                                    onChange={(e) => updateRule(r.ruleId, { reason: e.target.value })}
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <Label>Target Rate (%)</Label>
+                                  <NumericInput
+                                    data-testid={`input-rule-target-${r.ruleId}`}
+                                    value={r.targetRate ?? 0}
+                                    onCommit={(n) => updateRule(r.ruleId, { targetRate: n })}
                                   />
                                 </div>
                               </div>
@@ -624,10 +566,10 @@ export default function Review() {
                                 <div className="space-y-2 sm:col-span-2">
                                   <Label>Keywords (comma separated)</Label>
                                   <Input
-                                    data-testid={`input-rule-keywords-${r.id}`}
+                                    data-testid={`input-rule-keywords-${r.ruleId}`}
                                     value={r.keywords.join(", ")}
                                     onChange={(e) =>
-                                      updateRule(r.id, {
+                                      updateRule(r.ruleId, {
                                         keywords: e.target.value
                                           .split(",")
                                           .map((s) => s.trim())
@@ -647,13 +589,13 @@ export default function Review() {
                                     <AlertTriangle className="w-4 h-4" />
                                   </div>
                                   <div className="min-w-0">
-                                    <p className="text-sm font-semibold" data-testid={`text-rule-preview-title-${r.id}`}>
+                                    <p className="text-sm font-semibold" data-testid={`text-rule-preview-title-${r.ruleId}`}>
                                       Level keyword preview
                                     </p>
-                                    <p className="text-xs text-muted-foreground mt-1" data-testid={`text-rule-preview-body-${r.id}`}>
+                                    <p className="text-xs text-muted-foreground mt-1" data-testid={`text-rule-preview-body-${r.ruleId}`}>
                                       With levels {r.levelTags.join("+")}, we also watch for:
                                     </p>
-                                    <div className="mt-2 flex flex-wrap gap-2" data-testid={`list-rule-preview-${r.id}`}>
+                                    <div className="mt-2 flex flex-wrap gap-2" data-testid={`list-rule-preview-${r.ruleId}`}>
                                       {levelKeywordPreview(r.levelTags).map((k) => chip(k))}
                                     </div>
                                   </div>
@@ -665,28 +607,28 @@ export default function Review() {
 
                         <div className="flex items-center gap-2 shrink-0">
                           <Button
-                            data-testid={`button-rule-toggle-${r.id}`}
+                            data-testid={`button-rule-toggle-${r.ruleId}`}
                             variant="outline"
                             className="h-9"
-                            onClick={() => toggleRule(r.id)}
+                            onClick={() => toggleRule(r)}
                           >
                             {r.enabled ? "Disable" : "Enable"}
                           </Button>
 
                           <Button
-                            data-testid={`button-rule-edit-${r.id}`}
+                            data-testid={`button-rule-edit-${r.ruleId}`}
                             variant={isEditing ? "default" : "outline"}
                             className="h-9"
-                            onClick={() => setEditingRuleId((v) => (v === r.id ? null : r.id))}
+                            onClick={() => setEditingRuleId((v) => (v === r.ruleId ? null : r.ruleId))}
                           >
                             <Pencil className="w-4 h-4 mr-2" /> {isEditing ? "Done" : "Edit"}
                           </Button>
 
                           <Button
-                            data-testid={`button-rule-delete-${r.id}`}
+                            data-testid={`button-rule-delete-${r.ruleId}`}
                             variant="outline"
                             className="h-9 text-destructive hover:text-destructive"
-                            onClick={() => deleteRule(r.id)}
+                            onClick={() => deleteRule(r.ruleId)}
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
@@ -704,6 +646,36 @@ export default function Review() {
                     <p className="text-sm text-muted-foreground mt-1">Try a different search.</p>
                   </div>
                 )}
+              </div>
+
+              <Separator className="my-4" />
+
+              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-emerald-500/10 text-emerald-700 flex items-center justify-center shrink-0">
+                    <CheckCircle2 className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold" data-testid="text-congrats-title">Congratulations!</p>
+                    <p className="text-sm text-emerald-800/80 mt-1" data-testid="text-congrats-body">
+                      You have no avoidable downgrades to report this billing cycle
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-lg border border-border bg-secondary/10 p-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                    <AlertTriangle className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold" data-testid="text-canada-title">Canadian Processing Accounts</p>
+                    <p className="text-sm text-muted-foreground mt-1" data-testid="text-canada-body">
+                      Canada does not have interchange categories, so no information will be displayed in this part of your audit.
+                    </p>
+                  </div>
+                </div>
               </div>
             </Card>
           </TabsContent>

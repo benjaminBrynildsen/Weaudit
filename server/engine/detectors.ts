@@ -1,5 +1,5 @@
 import type { NormalizedLine } from "./normalizer";
-import type { DowngradeRule, Finding, FindingType } from "../storage";
+import type { DowngradeRule, Finding, FindingType, Company } from "../storage";
 import { INTERCHANGE_BENCHMARKS, type InterchangeBenchmark } from "./benchmarks";
 import { expandAbbreviations } from "./abbreviations";
 
@@ -7,11 +7,11 @@ import { expandAbbreviations } from "./abbreviations";
 
 const NON_PCI_PATTERNS = [
   /NON[\s-]*PCI/i,
-  /PCI\s*(?:NON[\s-]*)?COMPLIANCE/i,
+  /PCI\s*NON[\s-]*COMPLIANCE/i,
   /NON[\s-]*COMPLIANCE\s*FEE/i,
-  /PCI\s*FEE/i,
   /PCI\s*PENALTY/i,
   /NON[\s-]*VALIDATED/i,
+  /NON\s+RECEIPT.*PCI/i,
 ];
 
 export interface DetectionResult {
@@ -111,19 +111,24 @@ const CARDCONNECT_ALIASES: [RegExp, string][] = [
   [/VI[-\s]US\s+REGULATED\s+COMM/i, "VISA US REGULATED COMMERCIAL"],
   [/VI[-\s]REG\s+CONSUMER/i, "VISA REGULATED CONSUMER"],
 
-  // Mastercard Business Levels
-  [/MC[-\s]BUS(?:INESS)?\s+LEVEL\s+(\d+)\s+DATA\s+RATE\s+(I+|1)/i, "MASTERCARD BUS LEVEL $1 DATA RATE 1"],
-  [/MC[-\s]BUS(?:INESS)?\s+LEVEL\s+(\d+)\s+DATA\s+RATE\s+(II+|2)/i, "MASTERCARD BUS LEVEL $1 DATA RATE 2"],
+  // Mastercard Business Levels — order matters: check II before I
+  [/MC[-\s]BUS(?:INESS)?\s+LEVEL\s+(\d+)\s+DATA\s+RATE\s+II(?!I)/i, "MASTERCARD BUS LEVEL $1 DATA RATE 2"],
+  [/MC[-\s]BUS(?:INESS)?\s+LEVEL\s+(\d+)\s+DATA\s+RATE\s+I(?!I)/i, "MASTERCARD BUS LEVEL $1 DATA RATE 1"],
+  [/MC[-\s]BUS(?:INESS)?\s+LEVEL\s+(\d+)\s+DATA\s+RATE\s+2/i, "MASTERCARD BUS LEVEL $1 DATA RATE 2"],
+  [/MC[-\s]BUS(?:INESS)?\s+LEVEL\s+(\d+)\s+DATA\s+RATE\s+1/i, "MASTERCARD BUS LEVEL $1 DATA RATE 1"],
   [/MC[-\s]BUS(?:INESS)?\s+LEVEL\s+(\d+)\s+STANDARD/i, "MC BUS LEVEL $1 STANDARD"],
 
-  // Mastercard Corporate
-  [/MC[-\s]CORP(?:ORATE)?\s+DATA\s+RATE\s+(I+|1)\s+\(US\)\s+(BUS|CORP|PUR)/i, "MASTERCARD CORP DATA RATE 1 US $2"],
+  // Mastercard Corporate — check II before I
+  [/MC[-\s]CORP(?:ORATE)?\s+DATA\s+RATE\s+II(?!I)\s+\(US\)\s+(BUS|CORP|PUR)/i, "MASTERCARD CORP DATA RATE 2 US $1"],
+  [/MC[-\s]CORP(?:ORATE)?\s+DATA\s+RATE\s+I(?!I)\s+\(US\)\s+(BUS|CORP|PUR)/i, "MASTERCARD CORP DATA RATE 1 US $1"],
   [/MC[-\s]CORP(?:ORATE)?\s+DATA\s+RATE/i, "MC CORP DATA RATE"],
   [/MC[-\s]CORP(?:ORATE)?\s+CARD\s+STD/i, "MC CORP CARD STD"],
 
-  // Mastercard Commercial
-  [/MC[-\s]COMML?\s+DATA\s+R(?:ATE|T)\s+(I+|1)/i, "MASTERCARD COMMERCIAL DATA RATE 1"],
-  [/MC[-\s]COM\s+DATA\s+RATE\s+(I+|1)/i, "MASTERCARD COMMERCIAL DATA RATE 1"],
+  // Mastercard Commercial — check II before I
+  [/MC[-\s]COMML?\s+DATA\s+R(?:ATE|T)\s+II(?!I)/i, "MASTERCARD COMMERCIAL DATA RATE 2"],
+  [/MC[-\s]COMML?\s+DATA\s+R(?:ATE|T)\s+I(?!I)/i, "MASTERCARD COMMERCIAL DATA RATE 1"],
+  [/MC[-\s]COM\s+DATA\s+RATE\s+II(?!I)/i, "MASTERCARD COMMERCIAL DATA RATE 2"],
+  [/MC[-\s]COM\s+DATA\s+RATE\s+I(?!I)/i, "MASTERCARD COMMERCIAL DATA RATE 1"],
 
   // Mastercard Purchasing
   [/MC[-\s]PUR(?:CHASING)?\s+CARD\s+STD/i, "MC PUR CARD STD"],
@@ -162,12 +167,12 @@ const ELAVON_ALIASES: [RegExp, string][] = [
   [/MC\s+FLEET\s+STD/i, "FLEET STD"],
 ];
 
-/** Expand processor-specific category names with standard equivalents for keyword matching. */
+/**
+ * BLOCK SYSTEM DISABLED - Revert to old expansion approach
+ */
 function expandProcessorAliases(raw: string, processorName?: string): string {
-  // Step 1: Apply global abbreviation expansion (NEW)
   let expanded = expandAbbreviations(raw);
 
-  // Step 2: Apply processor-specific aliases (EXISTING)
   if (!processorName) return expanded;
 
   const normalized = processorName.toLowerCase();
@@ -220,14 +225,32 @@ export function detectDowngrades(
   rules: DowngradeRule[],
   excludeIndices: Set<number>,
   processorName?: string,
-): { results: DetectionResult[]; matchedIndices: Set<number> } {
+): { results: DetectionResult[]; matchedIndices: Set<number>; matchedRuleIds: Set<string> } {
   const results: DetectionResult[] = [];
   const matchedIndices = new Set<number>();
+  const matchedRuleIds = new Set<string>();
 
-  // Sort rules by keyword count (descending) - more specific rules first
-  const enabledRules = rules
-    .filter((r) => r.enabled)
-    .sort((a, b) => b.keywords.length - a.keywords.length);
+  // Sort rules by keyword count (descending) - more specific rules first.
+  // Tiebreaker: prefer rules whose keywords are rarer across the rule set
+  // (e.g. "PUR" is more discriminating than "CORP", which appears in many rules).
+  const activeRules = rules.filter((r) => r.enabled);
+  const keywordFreq = new Map<string, number>();
+  for (const r of activeRules) {
+    for (const kw of r.keywords) {
+      const norm = normalizeRoman(kw.toUpperCase());
+      keywordFreq.set(norm, (keywordFreq.get(norm) || 0) + 1);
+    }
+  }
+  const ruleSpecificity = (r: DowngradeRule): number =>
+    r.keywords.reduce((sum, kw) => {
+      const norm = normalizeRoman(kw.toUpperCase());
+      return sum + 1 / (keywordFreq.get(norm) || 1);
+    }, 0);
+  const enabledRules = activeRules.sort((a, b) => {
+    const lenDiff = b.keywords.length - a.keywords.length;
+    if (lenDiff !== 0) return lenDiff;
+    return ruleSpecificity(b) - ruleSpecificity(a);
+  });
 
   // DEBUG: Log detection parameters
   console.log(`[DEBUG] detectDowngrades called:`);
@@ -240,16 +263,8 @@ export function detectDowngrades(
     if (excludeIndices.has(i)) continue;
 
     const line = lines[i];
-    // Expand processor-specific category names with standard equivalents
     const matchText = expandProcessorAliases(line.raw, processorName);
     const lineTokens = tokenize(matchText);
-
-    // DEBUG: Log lines that look like they might be downgrades
-    if (line.raw.includes("BUS") || line.raw.includes("TR") || line.raw.includes("PRD")) {
-      console.log(`[DEBUG] Checking potential downgrade line ${i}:`);
-      console.log(`  Raw: "${line.raw}"`);
-      console.log(`  Expanded: "${matchText.substring(0, 150)}..."`);
-    }
 
     for (const rule of enabledRules) {
       // Brand check: Ensure line brand matches rule brand
@@ -262,6 +277,7 @@ export function detectDowngrades(
 
       if (keywordsMatch(lineTokens, rule.keywords)) {
         matchedIndices.add(i);
+        matchedRuleIds.add(rule.ruleId);
 
         // DEBUG: Log matches
         console.log(`[DEBUG] ✅ MATCH on line ${i}: ${rule.name} (brand: ${rule.brand})`);
@@ -289,7 +305,7 @@ export function detectDowngrades(
 
         // Skip findings with zero or negligible spread (already at optimal rate)
         if (rateSpread < 0.01) {
-          console.log(`[DEBUG] ⊘ Skipping ${rule.name} on line ${i}: spread $${rateSpread.toFixed(4)} too small`);
+          console.log(`[DEBUG] ⊘ Skipping ${rule.name} on line ${i}: spread ${rateSpread.toFixed(4)} too small (lineRate=${line.rate}, ruleRate=${rule.rate}, actualRate=${actualRate}, target=${rule.targetRate}, raw="${line.raw.substring(0, 80)}")`);
           break; // Don't check more rules for this line
         }
 
@@ -321,7 +337,7 @@ export function detectDowngrades(
     }
   }
 
-  return { results, matchedIndices };
+  return { results, matchedIndices, matchedRuleIds };
 }
 
 // ── Unknown Fee Detection ────────────────────────────────────────────────────
@@ -427,4 +443,250 @@ export function detectPadding(
   }
 
   return { results, matchedIndices };
+}
+
+// ── Service Charge Detection ────────────────────────────────────────────────
+// Parses directly from raw PDF page text to handle multi-line entries
+// (e.g. "AMEX CREDITS TRANS FEE" on line 1, "1 TRANSACTIONS AT .040000" on line 2)
+// and bare decimal rates (.004200) that the normalizer can't see.
+
+type ServiceChargeCategory =
+  | "discount"
+  | "transaction"
+  | "amex_discount"
+  | "amex_transaction"
+  | "statement"
+  | "avs"
+  | "reg"
+  | "chargeback"
+  | "auth";
+
+function classifyServiceChargeLine(raw: string): ServiceChargeCategory | null {
+  const upper = raw.toUpperCase();
+
+  if (/STATEMENT\s+FEE/i.test(upper)) return "statement";
+  if (/AVS/i.test(upper)) return "avs";
+  if (/\b(REG|REGULATORY)\b/i.test(upper)) return "reg";
+  if (/\b(CHARGEBACK|CHG\s*BK)\b/i.test(upper)) return "chargeback";
+
+  // AMEX-specific before generic
+  if (/AMEX/i.test(upper) && /SALES\s+DISCOUNT/i.test(upper)) return "amex_discount";
+  if (/AMEX/i.test(upper) && /TRANS(ACTION)?\s+FEE/i.test(upper)) return "amex_transaction";
+
+  // Generic
+  if (/SALES\s+DISCOUNT/i.test(upper)) return "discount";
+  if (/TRANS(ACTION)?\s+FEE/i.test(upper)) return "transaction";
+
+  if (/\bAUTH\b/i.test(upper)) return "auth";
+
+  return null;
+}
+
+function getContractedRate(category: ServiceChargeCategory, company: Company): number {
+  switch (category) {
+    case "discount":       return company.discountRate;
+    case "transaction":    return company.transactionFee;
+    case "amex_discount":  return company.discountRate;
+    case "amex_transaction": return company.amexFee;
+    case "statement":      return company.statementFee;
+    case "avs":            return company.avsFee;
+    case "reg":            return company.regFee;
+    case "chargeback":     return company.chargebackFee;
+    case "auth":           return company.authFee;
+  }
+}
+
+function parseServiceChargeRate(raw: string): { rate: number; isPerTransaction: boolean; txCount?: number; volume?: number } | null {
+  // Pattern 1: Discount/volume rate — ".004200 DISC RATE TIMES $29,286.21"
+  // The rate in Fiserv statements always has a dot (.004200 or 0.004200)
+  const discountMatch = raw.match(/(\d*\.\d+)\s+DISC\s+RATE\s+TIMES\s+\$([\d,]+\.?\d*)/i);
+  if (discountMatch) {
+    const rate = parseFloat(discountMatch[1]);
+    const volume = parseFloat(discountMatch[2].replace(/,/g, ""));
+    return { rate, isPerTransaction: false, volume };
+  }
+
+  // Pattern 1b: Discount rate without TIMES (just DISC RATE)
+  const discountMatch2 = raw.match(/(\d*\.\d+)\s+DISC\s+RATE/i);
+  if (discountMatch2) {
+    const rate = parseFloat(discountMatch2[1]);
+    return { rate, isPerTransaction: false };
+  }
+
+  // Pattern 2: Per-transaction — "N TRANSACTIONS AT .040000"
+  const transMatch = raw.match(/(\d+)\s+TRANSACTIONS?\s+AT\s+(\d*\.\d+)/i);
+  if (transMatch) {
+    const txCount = parseInt(transMatch[1], 10);
+    const perTxRate = parseFloat(transMatch[2]);
+    return { rate: perTxRate, isPerTransaction: true, txCount };
+  }
+
+  // Pattern 3: Flat fee for statement/chargeback/AVS/etc.
+  if (/STATEMENT\s+FEE|CHARGEBACK|CHG\s*BK|AVS|REG|REGULATORY|AUTH/i.test(raw)) {
+    const amountMatch = raw.match(/\$?([\d,]+\.?\d*)\s*$/);
+    if (amountMatch) {
+      const amount = parseFloat(amountMatch[1].replace(/,/g, ""));
+      return { rate: amount, isPerTransaction: true };
+    }
+  }
+
+  return null;
+}
+
+const CATEGORY_LABELS: Record<ServiceChargeCategory, string> = {
+  discount: "Sales Discount Rate",
+  transaction: "Transaction Fee",
+  amex_discount: "AMEX Discount Rate",
+  amex_transaction: "AMEX Transaction Fee",
+  statement: "Statement Fee",
+  avs: "AVS Fee",
+  reg: "Regulatory Fee",
+  chargeback: "Chargeback Fee",
+  auth: "Auth Fee",
+};
+
+/**
+ * Detect service charges by scanning raw page text directly.
+ * Bypasses the NormalizedLine pipeline because:
+ * - Multi-line entries (description + "N TRANSACTIONS AT .040000") span 2 lines
+ * - Bare decimal rates like .004200 aren't recognized by the normalizer
+ * - The normalizer drops lines without $ amounts or % rates
+ */
+export function detectServiceChargesFromText(
+  pages: { pageNum: number; text: string }[],
+  company: Company | undefined,
+): DetectionResult[] {
+  const results: DetectionResult[] = [];
+
+  console.log(`[DEBUG] detectServiceChargesFromText called:`);
+  console.log(`  - Pages: ${pages.length}`);
+  console.log(`  - Company: ${company?.name || "not found"}`);
+
+  // Section end patterns — stop scanning when we hit one of these
+  const SECTION_END = /^(INTERCHANGE|PENDING\s+INTERCHANGE|ASSESSMENT|DUES|GRAND\s+TOTAL|TOTAL\s+CHARGES|ADJUSTMENTS|TOTAL\s+\(SERVICE)/i;
+
+  for (const page of pages) {
+    const textLines = page.text.split("\n");
+    let inSection = false;
+
+    for (let i = 0; i < textLines.length; i++) {
+      const line = textLines[i].trim();
+
+      // Detect section start
+      if (/^SERVICE\s+CHARGES?/i.test(line)) {
+        inSection = true;
+        continue;
+      }
+
+      if (!inSection) continue;
+
+      // Detect section end
+      if (SECTION_END.test(line)) {
+        inSection = false;
+        break;
+      }
+
+      // Skip empty lines, dates, repeated headers
+      if (!line) continue;
+      if (/^\d{2}\/\d{2}\/\d{2,4}$/.test(line)) continue;
+      if (/^SERVICE\s+CHARGES?$/i.test(line)) continue;
+
+      // Check if next line is a rate continuation ("N TRANSACTIONS AT .040000")
+      const nextLine = (i + 1 < textLines.length) ? textLines[i + 1].trim() : "";
+      const isNextRate = /^\d+\s+TRANSACTIONS?\s+AT\s+/i.test(nextLine);
+
+      let combined = line;
+      if (isNextRate) {
+        combined = `${line} ${nextLine}`;
+        i++; // consume the next line
+      }
+
+      // Classify the combined line
+      const category = classifyServiceChargeLine(combined);
+      if (!category) continue;
+
+      // Parse the rate
+      const parsed = parseServiceChargeRate(combined);
+      if (!parsed) continue;
+
+      const chargedRate = parsed.rate;
+      const lineNum = i + 1;
+
+      // Compute the dollar amount of this charge
+      let chargeAmount = 0;
+      if (parsed.isPerTransaction && parsed.txCount) {
+        chargeAmount = parsed.txCount * chargedRate;
+      } else if (!parsed.isPerTransaction && parsed.volume) {
+        chargeAmount = parsed.volume * chargedRate;
+      }
+
+      if (!company) {
+        results.push({
+          type: "service_charge",
+          title: CATEGORY_LABELS[category],
+          category: "Service Charges",
+          rawLine: combined,
+          amount: chargeAmount,
+          rate: chargedRate,
+          page: page.pageNum,
+          lineNum,
+          severity: "Low",
+          confidence: "Low",
+          reason: `No company on file to compare rates.`,
+          recommendedAction: "Add company to the system to enable rate comparison.",
+          targetRate: 0,
+          spread: 0,
+        });
+        continue;
+      }
+
+      const contracted = getContractedRate(category, company);
+      const delta = chargedRate - contracted;
+
+      let severity: "High" | "Medium" | "Low" = "Low";
+      if (parsed.isPerTransaction) {
+        if (delta > 0.10) severity = "High";
+        else if (delta > 0.02) severity = "Medium";
+      } else {
+        // Raw decimal rates — .004200 vs .0005
+        if (delta > 0.003) severity = "High";
+        else if (delta > 0.001) severity = "Medium";
+      }
+
+      const isOvercharged = delta > 0.0001;
+      const isMatch = !isOvercharged;
+
+      // Format for display
+      const fmtRate = parsed.isPerTransaction
+        ? `$${chargedRate.toFixed(4)}`
+        : `${(chargedRate * 100).toFixed(4)}%`;
+      const fmtContracted = parsed.isPerTransaction
+        ? `$${contracted.toFixed(4)}`
+        : `${(contracted * 100).toFixed(4)}%`;
+
+      results.push({
+        type: "service_charge",
+        title: `${CATEGORY_LABELS[category]}${isOvercharged ? " - Overcharge" : ""}`,
+        category: "Service Charges",
+        rawLine: combined,
+        amount: chargeAmount,
+        rate: chargedRate,
+        page: page.pageNum,
+        lineNum,
+        severity: isMatch ? "Low" : severity,
+        confidence: "High",
+        reason: isMatch
+          ? `Rate matches contract. Charged: ${fmtRate}, Contracted: ${fmtContracted}`
+          : `Overcharge detected. Charged: ${fmtRate}, Contracted: ${fmtContracted}`,
+        recommendedAction: isMatch
+          ? "No action needed — rate matches contracted terms."
+          : `Request rate adjustment to contracted rate of ${fmtContracted}.`,
+        targetRate: contracted,
+        spread: isOvercharged ? Math.abs(delta) : 0,
+      });
+    }
+  }
+
+  console.log(`[DEBUG] Service charge results: ${results.length} findings`);
+  return results;
 }

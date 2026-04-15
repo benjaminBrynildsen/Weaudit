@@ -12,7 +12,7 @@
  * Run directly: npx tsx server/db/seed.ts
  */
 
-import { storage, getBackend } from "../storage";
+import { storage } from "../storage";
 
 const isos = [
   { name: "Fiserv", aliases: ["First Data"] },
@@ -136,7 +136,7 @@ const l3Rules: RuleSeed[] = [
 const rules: RuleSeed[] = [...l2Rules, ...l3Rules];
 
 export async function seed() {
-  console.log(`Seeding via ${getBackend()} backend...`);
+  console.log("Seeding via postgres backend...");
 
   // Idempotency: only populate tables that are empty. Any UI edits you've
   // made to rules/ISOs survive re-seeding.

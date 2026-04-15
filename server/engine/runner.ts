@@ -1,6 +1,6 @@
 import { parsePdf } from "./parser";
 import { normalizePages, extractFields } from "./normalizer";
-import { detectNonPci, detectDowngrades, detectPadding, detectUnknowns } from "./detectors";
+import { detectNonPci, detectDowngrades, detectPadding, detectUnknowns, detectServiceChargesFromText } from "./detectors";
 import { scoreAndPrioritize } from "./scorer";
 import { storage } from "../storage";
 import type { Finding } from "../storage";
@@ -46,16 +46,27 @@ export async function runAuditScan(auditId: string): Promise<void> {
     }).catch(() => {}); // update if possible
 
     // Step 2 & 3: Use processor-specific parser
-    // First pass: detect processor with generic parser
-    const genericParser = StatementParserFactory.createParser(undefined);
-    const fields = genericParser.extractFields(pages);
-    const processorName = fields.processorDetected || "";
+    // First: check if this is an internal audit report PDF (spreadsheet export)
+    const auditReportParser = StatementParserFactory.detectAuditReport(pages);
 
-    // Second pass: use processor-specific parser if available
-    const parser = StatementParserFactory.createParser(processorName);
+    let parser;
+    let processorName: string;
+    if (auditReportParser) {
+      parser = auditReportParser;
+      processorName = "WeAudit Report";
+    } else {
+      // First pass: detect processor with generic parser
+      const genericParser = StatementParserFactory.createParser(undefined);
+      const fields = genericParser.extractFields(pages);
+      processorName = fields.processorDetected || "";
+
+      // Second pass: use processor-specific parser if available
+      parser = StatementParserFactory.createParser(processorName);
+    }
+
     const normalizedLines = parser.normalizePages(pages);
 
-    // Re-extract fields with processor-specific parser (may differ for Fiserv Type 2, etc.)
+    // Extract fields with the selected parser
     const finalFields = parser.extractFields(pages);
 
     // Compute adjusted volume/fees (subtract AMEX per training docs)
@@ -101,9 +112,30 @@ export async function runAuditScan(auditId: string): Promise<void> {
     // Step 5: Detect Non-PCI
     const { results: nonPciResults, matchedIndices: nonPciIndices } = detectNonPci(normalizedLines);
 
+    // Step 5.5: Detect Service Charges (directly from raw page text)
+    const audit = await storage.getAudit(auditId);
+    const companies = await storage.listCompanies();
+    const matchedCompany = companies.find((c) => {
+      // Match by MID first (most reliable)
+      if (audit?.mid && c.mid) {
+        const auditMid = audit.mid.replace(/\D/g, "");
+        const companyMid = c.mid.replace(/\D/g, "");
+        if (companyMid.length > 0 && (auditMid === companyMid || auditMid.endsWith(companyMid) || companyMid.endsWith(auditMid))) {
+          return true;
+        }
+      }
+      // Fallback: match by name
+      if (!audit?.clientName) return false;
+      const clientLower = audit.clientName.toLowerCase();
+      const companyLower = c.name.toLowerCase();
+      return companyLower.includes(clientLower) || clientLower.includes(companyLower);
+    });
+    console.log(`[Audit ${auditId}] Company match: ${matchedCompany?.name || "none"}`);
+
+    const serviceChargeResults = detectServiceChargesFromText(pages, matchedCompany);
+
     // Step 6: Detect Downgrades (ONLY in interchange section)
     // Read gateway level from audit to filter rules
-    const audit = await storage.getAudit(auditId);
     const gatewayLevel = audit?.gatewayLevel;
 
     let downgradeRules = await storage.listDowngradeRules();
@@ -115,12 +147,24 @@ export async function runAuditScan(auditId: string): Promise<void> {
       );
     }
 
-    const { results: downgradeResults, matchedIndices: downgradeIndices } = detectDowngrades(
+    const { results: downgradeResults, matchedIndices: downgradeIndices, matchedRuleIds } = detectDowngrades(
       interchangeLines,  // Only scan interchange section, not all lines
       downgradeRules,
       nonPciIndices,
       processorName,
     );
+
+    // Stamp lastMatchedAt on every rule that fired during this scan
+    if (matchedRuleIds.size > 0) {
+      const now = new Date().toISOString();
+      await Promise.all(
+        Array.from(matchedRuleIds).map((ruleId) =>
+          storage.updateDowngradeRule(ruleId, { lastMatchedAt: now }).catch((e) =>
+            console.error(`Failed to stamp lastMatchedAt on rule ${ruleId}:`, e)
+          )
+        )
+      );
+    }
 
     // Step 7: Detect Padding (DISABLED - needs accurate benchmark data)
     // TODO: Re-enable after getting official Visa/MC interchange tables for reseller scenarios
@@ -141,21 +185,23 @@ export async function runAuditScan(auditId: string): Promise<void> {
     );
     const unknownResults = detectUnknowns(interchangeLines, allMatched);
 
-    // Step 9: Deduplicate downgrades — same interchange category often
-    // appears in both the fee-line section and the interchange summary grid.
-    // Keep the entry with the highest amount (the grid line has volume).
+    // Step 9: Deduplicate downgrades — same interchange category can appear multiple times
+    // in different transactions. Only dedupe if it's the EXACT SAME LINE (same page + lineNum).
+    // This allows multiple transactions with the same rule (e.g., multiple Business T5 entries).
     const dedupedDowngrades: typeof downgradeResults = [];
     const dgMap = new Map<string, (typeof downgradeResults)[0]>();
     for (const d of downgradeResults) {
-      const existing = dgMap.get(d.title);
+      // Use page + lineNum as key to identify unique lines (not just title)
+      const dedupKey = `${d.title}|p${d.page}|L${d.lineNum}`;
+      const existing = dgMap.get(dedupKey);
       if (!existing || d.amount > existing.amount) {
-        dgMap.set(d.title, d);
+        dgMap.set(dedupKey, d);
       }
     }
     dedupedDowngrades.push(...Array.from(dgMap.values()));
 
     // Step 10: Score & Prioritize
-    const allDetections = [...nonPciResults, ...dedupedDowngrades, ...paddingResults, ...unknownResults];
+    const allDetections = [...nonPciResults, ...serviceChargeResults, ...dedupedDowngrades, ...paddingResults, ...unknownResults];
     const prioritized = scoreAndPrioritize(allDetections);
 
     // Step 11: Save findings

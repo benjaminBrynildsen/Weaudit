@@ -20,6 +20,8 @@ import {
   Building2,
   CheckCircle2,
   ChevronDown,
+  ChevronUp,
+  Expand,
   FileScan,
   FileText,
   Flame,
@@ -34,12 +36,13 @@ import {
   UploadCloud,
   X,
 } from "lucide-react";
-import { useUploadStatement, useTriggerScan, useAuditStatus, useAudit, useFindings } from "@/lib/api";
+import { useUploadStatement, useTriggerScan, useAuditStatus, useAudit, useFindings, useUpdateFinding, useCompanies, useUpdateCompany } from "@/lib/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
+import AuditCelebration from "@/components/AuditCelebration";
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
@@ -158,7 +161,7 @@ export default function Dashboard() {
     statement_period: { label: "Statement Period" },
     total_submitted_volume: { label: "Total Submitted Volume" },
     amex_volume: { label: "AMEX Volume" },
-    monthly_volume_non_amex: { label: "Monthly Volume (Non-AMEX)" },
+    monthly_volume_non_amex: { label: "Processing Volume" },
     total_fees: { label: "Total Fees" },
     amex_fees: { label: "AMEX Fees" },
     monthly_fees_non_amex: { label: "Monthly Fees (Non-AMEX)" },
@@ -182,6 +185,7 @@ export default function Dashboard() {
 
   const [nonPci, setNonPci] = useState<NonPciRow[]>([]);
   const [downgrades, setDowngrades] = useState<DowngradeRow[]>([]);
+  const [downgradesExpanded, setDowngradesExpanded] = useState(false);
 
   const timers = useRef<number[]>([]);
 
@@ -203,6 +207,18 @@ export default function Dashboard() {
   const { data: auditStatusData } = useAuditStatus(currentAuditId, isScanning);
   const { data: auditData } = useAudit(currentAuditId);
   const { data: findingsData } = useFindings(currentAuditId);
+  const updateFindingMutation = useUpdateFinding();
+  const { data: companiesData } = useCompanies();
+  const updateCompanyMutation = useUpdateCompany();
+
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [levelMismatch, setLevelMismatch] = useState<{
+    companyName: string;
+    companyId: string;
+    companyLevel: string;
+    auditLevel: string;
+  } | null>(null);
+  const levelMismatchCheckedRef = useRef<string | null>(null);
 
   const phaseLabel = useMemo(() => {
     switch (phase) {
@@ -626,6 +642,37 @@ export default function Dashboard() {
     }));
   }, [auditData, currentAuditId]);
 
+  // Level mismatch detection: once MID is detected, match against companies DB
+  useEffect(() => {
+    if (!auditData?.mid || !companiesData || !currentAuditId) return;
+    // Only check once per audit
+    if (levelMismatchCheckedRef.current === currentAuditId) return;
+    levelMismatchCheckedRef.current = currentAuditId;
+
+    const detectedMid = auditData.mid.replace(/\D/g, "");
+    const currentLevel = auditData.gatewayLevel || level;
+
+    // Find company whose MID matches
+    const matchedCompany = companiesData.find((c) => {
+      if (!c.mid) return false;
+      const companyMid = c.mid.replace(/\D/g, "");
+      return companyMid.length > 0 && (detectedMid === companyMid || detectedMid.endsWith(companyMid) || companyMid.endsWith(detectedMid));
+    });
+
+    if (!matchedCompany) return;
+
+    // Company auditLevel is "Level II" or "Level III", convert to "II" or "III" for comparison
+    const companyLevelShort = matchedCompany.auditLevel.replace(/^Level\s*/i, "");
+    if (companyLevelShort !== currentLevel) {
+      setLevelMismatch({
+        companyName: matchedCompany.name,
+        companyId: matchedCompany.companyId,
+        companyLevel: companyLevelShort,
+        auditLevel: currentLevel,
+      });
+    }
+  }, [auditData, companiesData, currentAuditId, level]);
+
   // Populate real findings when they arrive from the API
   useEffect(() => {
     if (!findingsData || !currentAuditId) return;
@@ -686,7 +733,7 @@ export default function Dashboard() {
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <div className="flex items-center gap-2">
                   <Label className="text-xs text-muted-foreground whitespace-nowrap">Gateway Level:</Label>
                   <Select
@@ -722,7 +769,7 @@ export default function Dashboard() {
                   ) : (
                     <UploadCloud className="w-4 h-4 mr-2" />
                   )}
-                  {uploadMutation.isPending ? "Uploading…" : "Upload PDF"}
+                  <span className="hidden sm:inline">{uploadMutation.isPending ? "Uploading…" : "Upload PDF"}</span>
                 </Button>
 
                 <Button
@@ -736,8 +783,8 @@ export default function Dashboard() {
                   }}
                   disabled={!currentAuditId || (status !== "Complete" && status !== "Needs Review")}
                 >
-                  <FileText className="w-4 h-4 mr-2" />
-                  Generate Report
+                  <FileText className="w-4 h-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Generate Report</span>
                 </Button>
 
                 {currentAuditId && auditData?.processorDetected && (
@@ -772,6 +819,32 @@ export default function Dashboard() {
                   {progress}%
                 </Badge>
               </div>
+
+              {(status === "Needs Review" || status === "Complete") && (nonPci.length > 0 || downgrades.length > 0 || (findingsData && findingsData.filter(f => f.type === "service_charge").length > 0)) && (
+                <div className="flex items-center gap-3 text-xs">
+                  {nonPci.length > 0 && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-500/10 border border-red-500/20">
+                      <span className="font-medium text-red-600">{nonPci.length} Non-PCI</span>
+                      <span className="text-red-600/70 font-mono">${nonPciTotal.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {downgrades.length > 0 && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-yellow-400/10 border border-yellow-500/20">
+                      <span className="font-medium text-yellow-700">{downgrades.length} Downgrades</span>
+                      {downgradeRollup.revenueLost > 0 && (
+                        <span className="text-yellow-700/70 font-mono">${downgradeRollup.revenueLost.toFixed(2)}</span>
+                      )}
+                    </div>
+                  )}
+                  {findingsData && findingsData.filter(f => f.type === "service_charge" && f.spread != null && f.spread > 0).length > 0 && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-violet-500/10 border border-violet-500/20">
+                      <span className="font-medium text-violet-600">
+                        {findingsData.filter(f => f.type === "service_charge" && f.spread != null && f.spread > 0).length} Overcharged
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-2 rounded-lg border border-border bg-secondary/20 px-3 h-10">
@@ -814,7 +887,7 @@ export default function Dashboard() {
 
           <Separator className="my-3" />
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div className="rounded-lg border border-border overflow-hidden">
               <div className="flex items-center justify-between bg-secondary/20 px-3 py-2">
                 <div className="flex items-center gap-2 min-w-0">
@@ -877,12 +950,23 @@ export default function Dashboard() {
                     Downgrades
                   </Badge>
                 </div>
-                <p data-testid="text-live-strip-downgrade-count" className="text-xs text-muted-foreground">
-                  {downgrades.length} rows
-                </p>
+                <div className="flex items-center gap-2">
+                  <p data-testid="text-live-strip-downgrade-count" className="text-xs text-muted-foreground">
+                    {downgrades.length} rows
+                  </p>
+                  {downgrades.length > 0 && (
+                    <button
+                      onClick={() => setDowngradesExpanded(!downgradesExpanded)}
+                      className="p-0.5 rounded hover:bg-secondary/40 transition-colors text-muted-foreground hover:text-foreground"
+                      title={downgradesExpanded ? "Collapse" : "Expand all"}
+                    >
+                      {downgradesExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <Expand className="h-3.5 w-3.5" />}
+                    </button>
+                  )}
+                </div>
               </div>
 
-              <div className="divide-y divide-border max-h-[150px] overflow-auto">
+              <div className={`divide-y divide-border overflow-auto ${downgradesExpanded ? "max-h-[600px]" : "max-h-[150px]"}`}>
                 {downgrades.length === 0 ? (
                   <div className="p-3">
                     <p data-testid="text-live-strip-downgrade-empty" className="text-xs text-muted-foreground">
@@ -910,9 +994,9 @@ export default function Dashboard() {
                               <Badge
                                 data-testid={`badge-strip-downgrade-flag-${r.id}`}
                                 variant="outline"
-                                className="text-[10px] bg-amber-500/10 text-amber-700 border-amber-500/20"
+                                className="text-[10px] bg-red-500/10 text-red-700 border-red-500/20"
                               >
-                                Flag
+                                High Priority
                               </Badge>
                             )}
                           </div>
@@ -931,13 +1015,100 @@ export default function Dashboard() {
                 )}
               </div>
             </div>
+
+            {/* Service Charges Stream */}
+            <div className="rounded-lg border border-border overflow-hidden">
+              <div className="flex items-center justify-between bg-secondary/20 px-3 py-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Badge
+                    data-testid="badge-live-strip-service-charge"
+                    variant="outline"
+                    className="text-[11px] bg-violet-500/10 text-violet-600 border-violet-500/20"
+                  >
+                    Service Charges
+                  </Badge>
+                </div>
+                <p data-testid="text-live-strip-service-charge-count" className="text-xs text-muted-foreground">
+                  {findingsData?.filter((f) => f.type === "service_charge").length ?? 0} rows
+                </p>
+              </div>
+
+              <div className="divide-y divide-border max-h-[150px] overflow-auto">
+                {(!findingsData || findingsData.filter((f) => f.type === "service_charge").length === 0) ? (
+                  <div className="p-3">
+                    <p data-testid="text-live-strip-service-charge-empty" className="text-xs text-muted-foreground">
+                      {phase === "idle" ? "No rows yet." : "Streaming..."}
+                    </p>
+                  </div>
+                ) : (
+                  findingsData
+                    .filter((f) => f.type === "service_charge")
+                    .map((f) => {
+                      const isOvercharged = f.spread != null && f.spread > 0;
+                      // Discount rates are raw decimals (<0.1), transaction fees are dollar amounts
+                      const isDiscountRate = /discount/i.test(f.title);
+                      const fmtRate = isDiscountRate
+                        ? `${(f.rate * 100).toFixed(4)}%`
+                        : `$${f.rate.toFixed(4)}`;
+                      const fmtTarget = f.targetRate != null
+                        ? (isDiscountRate
+                          ? `${((f.targetRate ?? 0) * 100).toFixed(4)}%`
+                          : `$${(f.targetRate ?? 0).toFixed(4)}`)
+                        : null;
+                      return (
+                        <button
+                          key={f.findingId}
+                          data-testid={`strip-service-charge-${f.findingId}`}
+                          className="w-full text-left px-3 py-2 hover:bg-secondary/20 transition-colors"
+                          onClick={() =>
+                            jumpToEvidence(
+                              { page: f.page, box: { x: 10, y: Math.max(5, (f.lineNum ?? 1) * 4), w: 54, h: 8 } },
+                              f.findingId,
+                            )
+                          }
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium truncate">{f.rawLine || f.title}</p>
+                              <p className="text-[11px] text-muted-foreground mt-0.5">
+                                p.{f.page} &middot; {f.title}
+                              </p>
+                            </div>
+                            <div className="shrink-0 text-right flex items-center gap-2">
+                              <div>
+                                <p className="font-mono text-xs">{fmtRate}</p>
+                                {fmtTarget && (
+                                  <p className="font-mono text-[11px] text-muted-foreground mt-0.5">
+                                    vs {fmtTarget}
+                                  </p>
+                                )}
+                              </div>
+                              {isOvercharged ? (
+                                <Badge variant="outline" className="text-[10px] bg-red-500/10 text-red-600 border-red-500/20">
+                                  <AlertTriangle className="w-3 h-3 mr-0.5" />
+                                  OVER
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
+                                  <CheckCircle2 className="w-3 h-3 mr-0.5" />
+                                  OK
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })
+                )}
+              </div>
+            </div>
           </div>
         </Card>
 
         {/* PDF Viewer */}
         <Card className="overflow-hidden shadow-sm">
           <div className="p-4 sm:p-5 border-b border-border bg-secondary/10">
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
               <div className="min-w-0">
                 <p data-testid="text-pdf-title" className="font-semibold">
                   PDF Viewer
@@ -962,27 +1133,27 @@ export default function Dashboard() {
           </div>
 
           <div className="relative aspect-[3/4] bg-gradient-to-b from-background to-secondary/20">
-            <div className="absolute inset-0 p-6">
+            <div className="absolute inset-0 p-2 sm:p-6">
               <div className="h-full rounded-xl border border-border bg-card shadow-sm overflow-hidden relative">
                 <div className="absolute inset-x-0 top-0 h-10 border-b border-border bg-secondary/20 flex items-center justify-between px-3">
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <FileText className="w-4 h-4" />
                     <span data-testid="text-pdf-filename">Statement_2024-01.pdf</span>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1 sm:gap-2">
                     <Badge
                       data-testid="badge-outline-red"
                       variant="outline"
                       className="text-[10px] bg-red-500/10 text-red-600 border-red-500/20"
                     >
-                      RED • Non-PCI
+                      <span className="hidden sm:inline">RED • </span>Non-PCI
                     </Badge>
                     <Badge
                       data-testid="badge-outline-yellow"
                       variant="outline"
                       className="text-[10px] bg-yellow-400/15 text-yellow-700 border-yellow-500/20"
                     >
-                      YELLOW • Downgrade
+                      <span className="hidden sm:inline">YELLOW • </span>Downgrade
                     </Badge>
                   </div>
                 </div>
@@ -1062,7 +1233,7 @@ export default function Dashboard() {
 
         {/* Live Extracted Data — below the PDF viewer */}
         <Card className="overflow-hidden shadow-sm">
-          <div className="p-5">
+          <div className="p-4 sm:p-5">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p data-testid="text-leftpanel-title" className="font-semibold">
@@ -1141,7 +1312,7 @@ export default function Dashboard() {
                     </Badge>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {[
                       "total_submitted_volume",
                       "amex_volume",
@@ -1275,7 +1446,7 @@ export default function Dashboard() {
                     </Badge>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="rounded-lg border border-border bg-secondary/10 p-3">
                       <p className="text-[11px] text-muted-foreground">Rows</p>
                       <p data-testid="text-downgrade-rows" className="font-mono text-sm mt-1">
@@ -1297,46 +1468,87 @@ export default function Dashboard() {
                   </div>
 
                   {phase === "complete" && downgrades.some((d) => d.flagged) && (
-                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
-                      <div className="flex items-start gap-2">
-                        <AlertTriangle className="w-4 h-4 text-amber-700 mt-0.5" />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p data-testid="text-review-before-saving-title" className="text-xs font-semibold text-amber-800">
-                                Review before saving
-                              </p>
-                              <p data-testid="text-review-before-saving-body" className="text-[11px] text-amber-800/80 mt-1">
-                                We found {downgrades.filter((d) => d.flagged).length} potential new downgrade line(s). Finish the scan, then review flagged rows before saving.
-                              </p>
-                            </div>
+                    <div className="space-y-3">
+                      <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="w-4 h-4 text-amber-700 mt-0.5" />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                              <div className="min-w-0">
+                                <p data-testid="text-review-before-saving-title" className="text-xs font-semibold text-amber-800">
+                                  High Priority Findings
+                                </p>
+                                <p data-testid="text-review-before-saving-body" className="text-[11px] text-amber-800/80 mt-1">
+                                  {downgrades.filter((d) => d.flagged).length} high priority downgrade(s) detected. Review below before finalizing.
+                                </p>
+                              </div>
 
-                            <div className="flex items-center gap-2 shrink-0">
-                              <Button
-                                data-testid="button-open-review"
-                                size="sm"
-                                className="h-8 bg-amber-700 hover:bg-amber-800 text-white"
-                                onClick={() => {
-                                  window.location.href = "/review";
-                                }}
-                              >
-                                Open review
-                              </Button>
-                              <Button
-                                data-testid="button-mark-reviewed-later"
-                                size="sm"
-                                variant="outline"
-                                className="h-8"
-                                onClick={() => {
-                                  window.scrollTo({ top: 0, behavior: "smooth" });
-                                }}
-                              >
-                                Later
-                              </Button>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <Button
+                                  data-testid="button-open-review"
+                                  size="sm"
+                                  className="h-8 bg-amber-700 hover:bg-amber-800 text-white"
+                                  onClick={() => setReviewOpen((v) => !v)}
+                                >
+                                  {reviewOpen ? "Hide review" : "Open review"}
+                                </Button>
+                                <Button
+                                  data-testid="button-mark-reviewed-later"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8"
+                                  onClick={() => {
+                                    setReviewOpen(false);
+                                    window.scrollTo({ top: 0, behavior: "smooth" });
+                                  }}
+                                >
+                                  Later
+                                </Button>
+                              </div>
                             </div>
                           </div>
                         </div>
                       </div>
+
+                      {reviewOpen && findingsData && (
+                        <div className="rounded-lg border border-amber-500/20 bg-amber-50/50 dark:bg-amber-900/10 p-4 space-y-2">
+                          <p className="text-xs font-semibold text-amber-800 mb-3">High Priority Findings</p>
+                          {findingsData
+                            .filter((f) => f.type === "downgrade" && f.severity === "High" && f.status === "open")
+                            .map((f) => (
+                              <div
+                                key={f.findingId}
+                                className="rounded-lg border border-border bg-white dark:bg-background p-3 flex flex-col sm:flex-row sm:items-center gap-3"
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs font-mono truncate">{f.rawLine || f.title}</p>
+                                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                                    p.{f.page} &middot; {f.reason}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-xs"
+                                    onClick={() => {
+                                      const match = downgrades.find((d) => d.id === f.findingId);
+                                      if (match) setSelectedDowngrade(match);
+                                    }}
+                                  >
+                                    Detail
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
+                          {findingsData.filter((f) => f.type === "downgrade" && f.severity === "High" && f.status === "open").length === 0 && (
+                            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 flex items-center gap-2">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-700" />
+                              <p className="text-xs text-emerald-800 font-medium">All high priority findings have been reviewed.</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1352,7 +1564,7 @@ export default function Dashboard() {
                 <div className="min-w-0">
                   <p className="font-semibold">All Processing Line Items</p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Every extracted line item from the statement. Flagged findings are highlighted.
+                    Every extracted line item from the statement. High priority findings are highlighted.
                   </p>
                 </div>
                 <Badge variant="outline" className="text-xs text-muted-foreground">
@@ -1363,10 +1575,10 @@ export default function Dashboard() {
               <Separator className="my-4" />
 
               <div className="rounded-lg border border-border overflow-hidden">
-                <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 px-3 py-2 bg-secondary/20 text-[11px] font-medium text-muted-foreground border-b border-border">
+                <div className="grid grid-cols-[1fr_auto_auto] sm:grid-cols-[1fr_auto_auto_auto] gap-x-3 sm:gap-x-4 px-3 py-2 bg-secondary/20 text-[11px] font-medium text-muted-foreground border-b border-border">
                   <span>Description</span>
                   <span className="text-right">Amount</span>
-                  <span className="text-right">Rate</span>
+                  <span className="hidden sm:block text-right">Rate</span>
                   <span className="text-center">Type</span>
                 </div>
                 <div className="divide-y divide-border max-h-[400px] overflow-auto">
@@ -1374,22 +1586,26 @@ export default function Dashboard() {
                     .slice()
                     .sort((a, b) => (a.page !== b.page ? a.page - b.page : a.lineNum - b.lineNum))
                     .map((f) => {
-                      const isFlagged = f.type === "non_pci" || f.type === "downgrade";
+                      const isFlagged = f.type === "non_pci" || f.type === "downgrade" || (f.type === "service_charge" && f.spread != null && f.spread > 0);
                       const bgClass = f.type === "non_pci"
                         ? "bg-red-500/5 hover:bg-red-500/10"
                         : f.type === "downgrade"
                           ? "bg-yellow-400/5 hover:bg-yellow-400/10"
-                          : "hover:bg-secondary/20";
+                          : f.type === "service_charge"
+                            ? (f.spread && f.spread > 0 ? "bg-violet-500/5 hover:bg-violet-500/10" : "hover:bg-secondary/20")
+                            : "hover:bg-secondary/20";
                       const borderClass = f.type === "non_pci"
                         ? "border-l-2 border-l-red-500"
                         : f.type === "downgrade"
                           ? "border-l-2 border-l-yellow-500"
-                          : "border-l-2 border-l-transparent";
+                          : f.type === "service_charge"
+                            ? "border-l-2 border-l-violet-500"
+                            : "border-l-2 border-l-transparent";
 
                       return (
                         <button
                           key={f.findingId}
-                          className={`w-full text-left grid grid-cols-[1fr_auto_auto_auto] gap-x-4 px-3 py-2.5 transition-colors ${bgClass} ${borderClass}`}
+                          className={`w-full text-left grid grid-cols-[1fr_auto_auto] sm:grid-cols-[1fr_auto_auto_auto] gap-x-3 sm:gap-x-4 px-3 py-2.5 transition-colors ${bgClass} ${borderClass}`}
                           onClick={() => {
                             if (f.type === "downgrade") {
                               const match = downgrades.find((d) => d.id === f.findingId);
@@ -1414,7 +1630,7 @@ export default function Dashboard() {
                           <p className="font-mono text-xs text-right self-center whitespace-nowrap">
                             ${f.amount.toFixed(2)}
                           </p>
-                          <p className="font-mono text-xs text-right self-center whitespace-nowrap text-muted-foreground">
+                          <p className="hidden sm:block font-mono text-xs text-right self-center whitespace-nowrap text-muted-foreground">
                             {f.rate > 0 ? `${f.rate.toFixed(2)}%` : "—"}
                           </p>
                           <div className="self-center text-center">
@@ -1425,10 +1641,12 @@ export default function Dashboard() {
                                   ? "bg-red-500/10 text-red-600 border-red-500/20"
                                   : f.type === "downgrade"
                                     ? "bg-yellow-400/15 text-yellow-700 border-yellow-500/20"
-                                    : "text-muted-foreground"
+                                    : f.type === "service_charge"
+                                      ? "bg-violet-500/10 text-violet-600 border-violet-500/20"
+                                      : "text-muted-foreground"
                               }`}
                             >
-                              {f.type === "non_pci" ? "Non-PCI" : f.type === "downgrade" ? "Downgrade" : "Unknown"}
+                              {f.type === "non_pci" ? "Non-PCI" : f.type === "downgrade" ? "Downgrade" : f.type === "service_charge" ? "Svc Charge" : "Unknown"}
                             </Badge>
                           </div>
                         </button>
@@ -1457,7 +1675,7 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 data-testid="button-simulate-complete"
                 variant="outline"
@@ -1497,7 +1715,7 @@ export default function Dashboard() {
 
       {/* Downgrade Detail Modal */}
       <Dialog open={!!selectedDowngrade} onOpenChange={(open) => !open && setSelectedDowngrade(null)}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-md">
           <DialogHeader>
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-yellow-400/15 text-yellow-700 flex items-center justify-center shrink-0">
@@ -1519,7 +1737,7 @@ export default function Dashboard() {
                 <p className="text-sm font-mono mt-1 break-words">{selectedDowngrade.raw}</p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="rounded-lg border border-border bg-secondary/10 p-3">
                   <p className="text-[11px] text-muted-foreground">Volume</p>
                   <p className="font-mono text-sm mt-1">{selectedDowngrade.volume}</p>
@@ -1547,12 +1765,12 @@ export default function Dashboard() {
               </div>
 
               {selectedDowngrade.flagged && selectedDowngrade.flagReason && (
-                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3">
                   <div className="flex items-start gap-2">
-                    <AlertTriangle className="w-4 h-4 text-amber-700 mt-0.5 shrink-0" />
+                    <AlertTriangle className="w-4 h-4 text-red-700 mt-0.5 shrink-0" />
                     <div>
-                      <p className="text-xs font-semibold text-amber-800">Flagged</p>
-                      <p className="text-xs text-amber-800/80 mt-0.5">{selectedDowngrade.flagReason}</p>
+                      <p className="text-xs font-semibold text-red-800">High Priority</p>
+                      <p className="text-xs text-red-800/80 mt-0.5">{selectedDowngrade.flagReason}</p>
                     </div>
                   </div>
                 </div>
@@ -1584,6 +1802,94 @@ export default function Dashboard() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Level Mismatch Dialog */}
+      <Dialog open={!!levelMismatch} onOpenChange={(open) => !open && setLevelMismatch(null)}>
+        <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-md">
+          <DialogHeader>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-700 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <DialogTitle className="text-base">Level Mismatch Detected</DialogTitle>
+                <DialogDescription className="text-xs">
+                  The audit level doesn't match the company database.
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          {levelMismatch && (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-amber-500/20 bg-amber-50/50 dark:bg-amber-900/10 p-3">
+                <p className="text-xs text-amber-800">
+                  <span className="font-semibold">{levelMismatch.companyName}</span> is set to{" "}
+                  <span className="font-mono font-semibold">Level {levelMismatch.companyLevel}</span> in the company database,
+                  but this audit is set to{" "}
+                  <span className="font-mono font-semibold">Level {levelMismatch.auditLevel}</span>.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Button
+                  className="w-full justify-start h-10"
+                  variant="outline"
+                  onClick={async () => {
+                    await handleGatewayLevelChange(levelMismatch.companyLevel as "II" | "III");
+                    setLevelMismatch(null);
+                  }}
+                >
+                  <CheckCircle2 className="w-4 h-4 mr-2 text-emerald-600" />
+                  Change audit to Level {levelMismatch.companyLevel}
+                </Button>
+                <Button
+                  className="w-full justify-start h-10"
+                  variant="outline"
+                  onClick={async () => {
+                    const newLevel = `Level ${levelMismatch.auditLevel}`;
+                    updateCompanyMutation.mutate(
+                      { companyId: levelMismatch.companyId, auditLevel: newLevel },
+                      {
+                        onSuccess: () => {
+                          toast({
+                            title: "Company Updated",
+                            description: `${levelMismatch.companyName} changed to ${newLevel}.`,
+                          });
+                        },
+                      },
+                    );
+                    setLevelMismatch(null);
+                  }}
+                >
+                  <Building2 className="w-4 h-4 mr-2 text-blue-600" />
+                  Update company to Level {levelMismatch.auditLevel}
+                </Button>
+                <Button
+                  className="w-full justify-start h-10"
+                  variant="ghost"
+                  onClick={() => setLevelMismatch(null)}
+                >
+                  Ignore for now
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Celebration animation on audit completion */}
+      <AuditCelebration
+        show={showCelebration}
+        onComplete={() => setShowCelebration(false)}
+        findingsCount={downgrades.length + nonPci.length}
+        savingsAmount={
+          downgrades.reduce((sum, d) => {
+            const lost = d.revenueLost ? parseFloat(d.revenueLost.replace(/[$,]/g, "")) : 0;
+            return sum + (isNaN(lost) ? 0 : lost);
+          }, 0)
+        }
+      />
     </DashboardLayout>
   );
 }

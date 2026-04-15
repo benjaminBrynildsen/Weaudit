@@ -3,9 +3,8 @@ import { createServer, type Server } from "http";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { storage, getBackend } from "./storage";
+import { storage } from "./storage";
 import { runAuditScan } from "./engine/runner";
-import { setupTables } from "./db/setup";
 import { requireAuth } from "./auth/middleware";
 
 const upload = multer({
@@ -22,20 +21,6 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  // Ensure DynamoDB tables exist on startup — only relevant when the
-  // DynamoDB backend is active. Skip entirely on Postgres so we don't
-  // log confusing AWS errors on Render.
-  if (getBackend() === "dynamo") {
-    try {
-      await setupTables();
-    } catch (e) {
-      console.warn(
-        "DynamoDB table setup warning (tables may already exist or DynamoDB Local not running):",
-        (e as Error).message,
-      );
-    }
-  }
-
   // Gate every /api/* route behind authentication. Unauthenticated
   // requests get a 401 and the client redirects to /login.
   app.use("/api", requireAuth);
@@ -129,6 +114,48 @@ export async function registerRoutes(
       );
 
       res.status(201).json({ audit, statement });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  // ── Bulk Upload ────────────────────────────────────────────────────────────
+
+  app.post("/api/upload/bulk", upload.array("files", 50), async (req: Request, res: Response) => {
+    try {
+      const files = req.files as Express.Multer.File[];
+      if (!files || files.length === 0) return res.status(400).json({ error: "No files provided" });
+
+      const { processor, statementMonth, gatewayLevel } = req.body;
+      const results: Array<{ audit: any; statement: any }> = [];
+
+      for (const file of files) {
+        const ext = path.extname(file.originalname).toLowerCase();
+        const audit = await storage.createAudit({
+          clientName: file.originalname,
+          processor: processor || "Unknown",
+          statementMonth: statementMonth || "",
+          mid: "",
+          status: "idle",
+          gatewayLevel: gatewayLevel === "II" || gatewayLevel === "III" ? gatewayLevel : undefined,
+        });
+
+        const statement = await storage.createStatement({
+          auditId: audit.auditId,
+          fileName: file.originalname,
+          filePath: file.path,
+          fileType: ext === ".csv" ? "csv" : "pdf",
+        });
+
+        // Fire off scan asynchronously
+        runAuditScan(audit.auditId).catch((e) =>
+          console.error("Bulk scan error:", e)
+        );
+
+        results.push({ audit, statement });
+      }
+
+      res.status(201).json({ uploads: results });
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
     }
@@ -408,17 +435,28 @@ export async function registerRoutes(
 
       const nonPciFindings = findings.filter((f) => f.type === "non_pci");
       const downgradeFindings = findings.filter((f) => f.type === "downgrade");
+      const serviceChargeFindings = findings.filter((f) => f.type === "service_charge");
+      // Interchange lines: unknown findings with rates (actual qualification data)
+      const interchangeFindings = findings.filter((f) => f.type === "unknown" && f.rate > 0);
 
       const totalNonPci = nonPciFindings.reduce((sum, f) => sum + f.amount, 0);
-      const totalDowngrade = downgradeFindings.reduce((sum, f) => sum + f.amount, 0);
-      const totalRecovery = totalNonPci + totalDowngrade;
+      const totalDowngrade = downgradeFindings.reduce((sum, f) => sum + (f.spread || 0), 0);
+      const totalServiceChargeOvercharges = serviceChargeFindings
+        .filter((f) => f.spread != null && f.spread > 0)
+        .reduce((sum, f) => {
+          // spread is a rate delta — convert to dollars: (charge / chargedRate) × delta
+          const overchargeDollars = f.rate > 0 ? f.amount * f.spread! / f.rate : 0;
+          return sum + overchargeDollars;
+        }, 0);
+      const totalRecovery = totalNonPci + totalDowngrade + totalServiceChargeOvercharges;
 
       const money = (n: number) =>
         new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 
       // Group downgrade findings by rule name for report table
       // f.spread is now stored as estimated revenue lost in dollars
-      const downgradeGroups = new Map<string, { count: number; volume: number; rate: string; revenueLost: number; reasons: string }>();
+      const sevRank = (s: string) => s === "High" ? 0 : s === "Medium" ? 1 : 2;
+      const downgradeGroups = new Map<string, { count: number; volume: number; rate: string; revenueLost: number; reasons: string; severity: string }>();
       for (const f of downgradeFindings) {
         const key = f.title;
         const rateSpread = (f.rate && f.targetRate) ? Math.max(0, f.rate - f.targetRate) : 0;
@@ -427,6 +465,7 @@ export async function registerRoutes(
           existing.count += 1;
           existing.volume += f.amount;
           existing.revenueLost += f.spread || 0;
+          if (sevRank(f.severity) < sevRank(existing.severity)) existing.severity = f.severity;
         } else {
           downgradeGroups.set(key, {
             count: 1,
@@ -434,6 +473,7 @@ export async function registerRoutes(
             rate: rateSpread > 0 ? `+${rateSpread.toFixed(2)}%` : "—",
             revenueLost: f.spread || 0,
             reasons: f.reason,
+            severity: f.severity,
           });
         }
       }
@@ -468,6 +508,9 @@ export async function registerRoutes(
         flags: {
           nonPci: nonPciFindings.length,
           downgrades: downgradeFindings.length,
+          serviceCharges: serviceChargeFindings.length,
+          serviceChargeOvercharges: serviceChargeFindings.filter((f) => f.spread != null && f.spread > 0).length,
+          interchange: interchangeFindings.length,
         },
         findings: {
           nonPci: nonPciFindings.length > 0
@@ -487,6 +530,22 @@ export async function registerRoutes(
             rate: g.rate,
             revenueLost: money(g.revenueLost),
             reasons: g.reasons,
+            severity: g.severity,
+          })),
+          serviceCharges: serviceChargeFindings.map((f) => ({
+            label: f.title,
+            rawLine: f.rawLine,
+            chargedRate: f.rate,
+            contractedRate: f.targetRate ?? 0,
+            overcharge: f.spread != null && f.spread > 0,
+            overchargeAmount: (f.spread && f.rate > 0) ? f.amount * f.spread / f.rate : 0,
+            severity: f.severity,
+          })),
+          interchange: interchangeFindings.map((f) => ({
+            label: f.rawLine || f.title,
+            volume: money(f.amount),
+            rate: f.rate > 0 ? `${f.rate.toFixed(2)}%` : "—",
+            page: f.page,
           })),
         },
         notices,
