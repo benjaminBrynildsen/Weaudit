@@ -94,11 +94,16 @@ async function runOne(
     processorName,
   );
 
-  // Mirror runner.ts Step 9.5 — drop findings whose rule reason has an
-  // explicit "(Unless Tax Exempt)" carveout when the merchant is flagged.
-  const taxExemptCarveout = /\(?\s*unless\s+tax[\s-]*exempt\s*\)?/i;
+  // Mirror runner.ts Step 9.5 — suppress only rules carrying the
+  // "(Unless Tax Exempt)" carveout that ALSO target Level III / Data III.
+  // Level II targets stay because billing/zip data is still available to
+  // tax-exempt merchants.
+  const unlessTaxExempt = /\(?\s*unless\s+tax[\s-]*exempt\s*\)?/i;
+  const targetsLevelThree = /\b(data|level)\s+III\b/i;
   const downgrades = taxExempt
-    ? downgradesRaw.filter((d) => !taxExemptCarveout.test(d.reason))
+    ? downgradesRaw.filter(
+        (d) => !(unlessTaxExempt.test(d.reason) && targetsLevelThree.test(d.reason)),
+      )
     : downgradesRaw;
 
   // Aggregate downgrades by rule name to match weAudit's report layout.

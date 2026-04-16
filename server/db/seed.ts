@@ -185,13 +185,19 @@ const l3Rules: RuleSeed[] = [
   { brand: "M", name: "BUS LEVEL 3 DATA RATE 1", rate: 2.85, reason: "Tax Exempt Transaction or Missing Data Rate II Information - Level 3 Merchant", targetRate: 2.10, levelTags: ["III"], keywords: ["BUS", "LEVEL 3", "DATA RATE 1"] },
   { brand: "M", name: "BUS LEVEL 4 DATA RATE 1", rate: 2.95, reason: "Tax Exempt Transaction or Missing Data Rate II Information - Level 4 Merchant", targetRate: 2.20, levelTags: ["III"], keywords: ["BUS", "LEVEL 4", "DATA RATE 1"] },
   { brand: "M", name: "BUS LEVEL 5 DATA RATE 1", rate: 3.00, reason: "Tax Exempt Transaction or Missing Data Rate II Information - Level 5 Merchant", targetRate: 2.25, levelTags: ["III"], keywords: ["BUS", "LEVEL 5", "DATA RATE 1"] },
-  // L3-only: MC CORP DATA RATE II variants (downgrade from Rate II to Rate III)
-  { brand: "M", name: "CORP DATA RATE II (US) CORP", rate: 2.50, reason: "Missing Level III Data - Could have cleared at Data III", targetRate: 1.90, levelTags: ["III"], keywords: ["DATA RATE 2", "US"] },
-  { brand: "M", name: "CORP DATA RATE II (US) CORP WORLD", rate: 2.15, reason: "Missing Level III Data - Could have cleared at Data III", targetRate: 1.80, levelTags: ["III"], keywords: ["DATA RATE 2", "WORLD"] },
-  { brand: "M", name: "CORP DATA RATE II (US) CORP WORLD ELITE", rate: 2.15, reason: "Missing Level III Data - Could have cleared at Data III", targetRate: 1.80, levelTags: ["III"], keywords: ["DATA RATE 2", "WORLD ELITE"] },
-  { brand: "M", name: "CORP DATA RATE II (US) PURCH", rate: 2.50, reason: "Missing Level III Data - Could have cleared at Data III", targetRate: 1.90, levelTags: ["III"], keywords: ["DATA RATE 2", "PUR"] },
-  { brand: "M", name: "CORP DATA RATE II (US) FLEET", rate: 2.50, reason: "Missing Level III Data - Could have cleared at Data III", targetRate: 1.90, levelTags: ["III"], keywords: ["DATA RATE 2", "FLEET"] },
-  { brand: "M", name: "CORP DATA RATE II (US) LRG MKT", rate: 2.50, reason: "Missing Level III Data - Could have cleared at Data III", targetRate: 1.80, levelTags: ["III"], keywords: ["DATA RATE 2", "LRG"] },
+  // L3-only: MC CORP DATA RATE II variants (downgrade from Rate II to Rate III).
+  // Keywords use the literal "(US) …" suffix to anchor the match — a bare
+  // "US" keyword substring-matched into "BUS LEVEL X DATA RATE II" lines and
+  // produced 5–6 false positives per L3 statement. Reasons carry the
+  // "(Unless Tax Exempt)" carveout because tax-exempt merchants can't
+  // provide the sales-tax/Level III data needed to clear at Data III, so
+  // manual auditors correctly skip these findings for them.
+  { brand: "M", name: "CORP DATA RATE II (US) CORP", rate: 2.50, reason: "Missing Level III Data - Could have cleared at Data III (Unless Tax Exempt)", targetRate: 1.90, levelTags: ["III"], keywords: ["DATA RATE 2", "(US) CORP"] },
+  { brand: "M", name: "CORP DATA RATE II (US) CORP WORLD", rate: 2.15, reason: "Missing Level III Data - Could have cleared at Data III (Unless Tax Exempt)", targetRate: 1.80, levelTags: ["III"], keywords: ["DATA RATE 2", "(US) CORP WORLD"] },
+  { brand: "M", name: "CORP DATA RATE II (US) CORP WORLD ELITE", rate: 2.15, reason: "Missing Level III Data - Could have cleared at Data III (Unless Tax Exempt)", targetRate: 1.80, levelTags: ["III"], keywords: ["DATA RATE 2", "(US) CORP WORLD ELITE"] },
+  { brand: "M", name: "CORP DATA RATE II (US) PURCH", rate: 2.50, reason: "Missing Level III Data - Could have cleared at Data III (Unless Tax Exempt)", targetRate: 1.90, levelTags: ["III"], keywords: ["DATA RATE 2", "(US) PUR"] },
+  { brand: "M", name: "CORP DATA RATE II (US) FLEET", rate: 2.50, reason: "Missing Level III Data - Could have cleared at Data III (Unless Tax Exempt)", targetRate: 1.90, levelTags: ["III"], keywords: ["DATA RATE 2", "(US) FLEET"] },
+  { brand: "M", name: "CORP DATA RATE II (US) LRG MKT", rate: 2.50, reason: "Missing Level III Data - Could have cleared at Data III (Unless Tax Exempt)", targetRate: 1.80, levelTags: ["III"], keywords: ["DATA RATE 2", "(US) LRG"] },
   { brand: "M", name: "BUSINESS LEVEL 2 STANDARD", rate: 3.10, reason: "Tax Exempt Transaction or Missing Multiple Data Fields - Level 2 Merchant", targetRate: 2.05, levelTags: ["III"], keywords: ["BUS", "LEVEL 2", "STANDARD"] },
   { brand: "M", name: "BUSINESS LEVEL 3 STANDARD", rate: 3.15, reason: "Tax Exempt Transaction or Missing Multiple Data Fields - Level 3 Merchant", targetRate: 2.10, levelTags: ["III"], keywords: ["BUS", "LEVEL 3", "STANDARD"] },
   { brand: "M", name: "BUSINESS LEVEL 4 STANDARD", rate: 3.25, reason: "Tax Exempt Transaction or Missing Multiple Data Fields - Level 4 Merchant", targetRate: 2.20, levelTags: ["III"], keywords: ["BUS", "LEVEL 4", "STANDARD"] },

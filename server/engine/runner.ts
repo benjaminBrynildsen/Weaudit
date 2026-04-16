@@ -202,19 +202,22 @@ export async function runAuditScan(auditId: string): Promise<void> {
     }
     dedupedDowngrades.push(...Array.from(dgMap.values()));
 
-    // Step 9.5: Tax-exempt filter. Some downgrade rule reasons end with
-    // an explicit "(Unless Tax Exempt)" carveout — those categories do
-    // NOT downgrade for tax-exempt merchants. Other rules mention tax-
-    // exempt as one of several possible causes ("Tax Exempt Transaction
-    // or Missing Level II Information") — those findings still apply
-    // to tax-exempt merchants, so we leave them alone. When the matched
-    // company is flagged tax-exempt, drop only the "Unless Tax Exempt"
-    // findings so the report lines up with the manual auditor.
-    const taxExemptCarveout = /\(?\s*unless\s+tax[\s-]*exempt\s*\)?/i;
+    // Step 9.5: Tax-exempt filter. Suppress only rules that simultaneously
+    // (a) carry the "(Unless Tax Exempt)" carveout in the reason AND
+    // (b) target Level III / Data III — i.e. require sales-tax data that
+    // tax-exempt merchants definitionally can't provide. Rules whose
+    // target is Level II stay even for tax-exempt merchants: Level II
+    // only requires billing/zip/invoice data, which the merchant CAN
+    // provide. This matches how the manual auditor scores tax-exempt L3
+    // merchants (Superior, Shore) — they drop "could have cleared at
+    // Level III (Unless Tax Exempt)" findings but keep "could have
+    // cleared at Level II (Unless Tax Exempt)".
+    const unlessTaxExempt = /\(?\s*unless\s+tax[\s-]*exempt\s*\)?/i;
+    const targetsLevelThree = /\b(data|level)\s+III\b/i;
     let suppressedForTaxExempt = 0;
     const finalDowngrades = matchedCompany?.taxExempt
       ? dedupedDowngrades.filter((d) => {
-          if (taxExemptCarveout.test(d.reason)) {
+          if (unlessTaxExempt.test(d.reason) && targetsLevelThree.test(d.reason)) {
             suppressedForTaxExempt += 1;
             return false;
           }
