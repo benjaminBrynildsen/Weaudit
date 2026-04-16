@@ -34,7 +34,7 @@ import { Separator } from "@/components/ui/separator";
 import { useUploadStatement, useAudits, useAuditStatus, useAudit, type AuditStatus } from "@/lib/api";
 import { useLocation } from "wouter";
 
-type UploadStatus = "idle" | "uploading" | "processing" | "review" | "done";
+type UploadStatus = "idle" | "uploading" | "processing" | "review" | "done" | "failed";
 
 type Processor = "CardConnect" | "Fiserv" | "Elavon" | "Worldpay" | "Chase" | "VersaPay" | "Stripe" | "Square" | "North Summit" | "CoCard" | "Other";
 
@@ -50,6 +50,7 @@ type UploadedStatement = {
   estimatedVolume?: string;
   status: UploadStatus;
   progress: number;
+  errorMessage?: string;
   findingsPreview?: {
     potentialSavingsMonthly: number;
     confidence: "High" | "Medium" | "Low";
@@ -69,6 +70,8 @@ function mapAuditStatusToUploadStatus(backendStatus: AuditStatus): UploadStatus 
       return "review";
     case "complete":
       return "done";
+    case "failed":
+      return "failed";
     default:
       return "idle";
   }
@@ -161,7 +164,7 @@ export default function Upload() {
   // Update statement status when polling returns new data
   useEffect(() => {
     if (!pollingStatus) return;
-    const { auditId, status: backendStatus } = pollingStatus;
+    const { auditId, status: backendStatus, errorMessage } = pollingStatus;
     const displayStatus = mapAuditStatusToUploadStatus(backendStatus);
 
     // Find the local statement ID for this audit
@@ -176,6 +179,7 @@ export default function Upload() {
         const progress =
           displayStatus === "done" ? 100
           : displayStatus === "review" ? 100
+          : displayStatus === "failed" ? 0
           : displayStatus === "processing" ? 60
           : displayStatus === "uploading" ? 30
           : s.progress;
@@ -184,21 +188,34 @@ export default function Upload() {
           ...s,
           status: displayStatus,
           progress,
+          errorMessage: displayStatus === "failed" ? errorMessage : undefined,
         };
       }),
     );
 
     // Stop polling once the audit is in a terminal state
-    if (backendStatus === "complete" || backendStatus === "needs_review") {
+    if (
+      backendStatus === "complete" ||
+      backendStatus === "needs_review" ||
+      backendStatus === "failed"
+    ) {
       setPollingAuditId(undefined);
-      setCompletedAuditId(auditId);
-      toast({
-        title: backendStatus === "complete" ? "Audit complete" : "Human review queued",
-        description:
-          backendStatus === "complete"
-            ? "Your statement was audited and findings are ready."
-            : "This statement needs a human review before reporting.",
-      });
+      if (backendStatus === "failed") {
+        toast({
+          title: "Audit failed",
+          description: errorMessage || "The scan didn't complete. Check the server logs.",
+          variant: "destructive",
+        });
+      } else {
+        setCompletedAuditId(auditId);
+        toast({
+          title: backendStatus === "complete" ? "Audit complete" : "Human review queued",
+          description:
+            backendStatus === "complete"
+              ? "Your statement was audited and findings are ready."
+              : "This statement needs a human review before reporting.",
+        });
+      }
     }
   }, [pollingStatus, statementAuditMap, toast]);
 
@@ -735,18 +752,22 @@ export default function Upload() {
                                 ? "bg-green-500/10 text-green-600 border-green-500/20"
                                 : s.status === "review"
                                   ? "bg-orange-500/10 text-orange-600 border-orange-500/20"
-                                  : "text-muted-foreground"
+                                  : s.status === "failed"
+                                    ? "bg-red-500/10 text-red-600 border-red-500/20"
+                                    : "text-muted-foreground"
                             }
                           >
                             {s.status === "done"
                               ? "Audited"
                               : s.status === "review"
                                 ? "Human review"
-                                : s.status === "processing"
-                                  ? "Processing"
-                                  : s.status === "uploading"
-                                    ? "Uploading"
-                                    : "Queued"}
+                                : s.status === "failed"
+                                  ? "Failed"
+                                  : s.status === "processing"
+                                    ? "Processing"
+                                    : s.status === "uploading"
+                                      ? "Uploading"
+                                      : "Queued"}
                           </Badge>
                         </div>
 
@@ -772,6 +793,18 @@ export default function Upload() {
                             <Progress data-testid={`progress-statement-${s.id}`} value={s.progress} className="h-1.5" />
                             <p className="text-xs text-muted-foreground mt-2">
                               {s.status === "uploading" ? "Uploading file" : "Parsing and normalizing"} • {s.progress}%
+                            </p>
+                          </div>
+                        )}
+
+                        {s.status === "failed" && (
+                          <div
+                            data-testid={`text-statement-error-${s.id}`}
+                            className="mt-3 rounded-md border border-red-500/20 bg-red-500/10 p-3 text-xs"
+                          >
+                            <p className="font-semibold text-red-600">Scan failed</p>
+                            <p className="mt-1 font-mono text-red-600/90 whitespace-pre-wrap break-words">
+                              {s.errorMessage || "The server didn't report a reason. Check logs."}
                             </p>
                           </div>
                         )}

@@ -2,7 +2,7 @@
 // so both the DynamoDB and Postgres backends can implement IStorage without
 // import cycles via the Drizzle schema.
 
-export type AuditStatus = "idle" | "scanning" | "needs_review" | "complete";
+export type AuditStatus = "idle" | "scanning" | "needs_review" | "complete" | "failed";
 
 export interface Audit {
   auditId: string;
@@ -22,6 +22,7 @@ export interface Audit {
   statementPeriod?: string;
   processorDetected?: string;
   gatewayLevel?: "II" | "III";
+  errorMessage?: string;
 }
 
 export interface Statement {

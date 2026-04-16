@@ -216,7 +216,11 @@ export async function registerRoutes(
       const id = req.params.id as string;
       const audit = await storage.getAudit(id);
       if (!audit) return res.status(404).json({ error: "Audit not found" });
-      res.json({ auditId: audit.auditId, status: audit.status });
+      res.json({
+        auditId: audit.auditId,
+        status: audit.status,
+        errorMessage: audit.errorMessage,
+      });
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
     }

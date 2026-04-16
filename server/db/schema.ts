@@ -45,6 +45,7 @@ export const audits = pgTable("audits", {
   statementPeriod: text("statement_period"),
   processorDetected: text("processor_detected"),
   gatewayLevel: text("gateway_level").$type<"II" | "III">(),
+  errorMessage: text("error_message"),
 });
 
 export const statements = pgTable(
