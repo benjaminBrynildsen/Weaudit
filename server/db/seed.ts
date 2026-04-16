@@ -14,19 +14,19 @@
 
 import { storage } from "../storage";
 import { Pool } from "pg";
+import { getTableConfig } from "drizzle-orm/pg-core";
+import * as schema from "./schema";
 
 /**
- * Idempotent column sync. `drizzle-kit push --force` has silently skipped
- * adding new nullable columns on some Render deploys, leaving the app to
- * crash at runtime with "column X of relation Y does not exist". This
- * list is the belt-and-suspenders fallback — append new entries whenever
- * the Drizzle schema gains a column. Lives in the seed script (rather
- * than a separate step) so it runs without needing a render.yaml sync.
+ * Idempotent column sync. `drizzle-kit push --force` has been observed to
+ * silently skip adding new columns on Render deploys, so the app crashes
+ * at runtime with "column X of relation Y does not exist". Rather than
+ * maintain a hand-written list of missing columns and play whack-a-mole,
+ * this walks every Drizzle table in ./schema.ts and emits
+ * `ALTER TABLE ... ADD COLUMN IF NOT EXISTS ...` for each column. Safe to
+ * run on every boot — ADD COLUMN IF NOT EXISTS is a no-op when the
+ * column already matches.
  */
-const ensureColumnStatements: string[] = [
-  `ALTER TABLE IF EXISTS audits ADD COLUMN IF NOT EXISTS error_message text`,
-];
-
 async function ensureColumns() {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) return;
@@ -35,11 +35,45 @@ async function ensureColumns() {
     connectionString,
     ssl: useSSL ? { rejectUnauthorized: false } : undefined,
   });
-  try {
-    for (const sql of ensureColumnStatements) {
-      console.log(`  ${sql}`);
-      await pool.query(sql);
+
+  const statements: string[] = [];
+  for (const exported of Object.values(schema)) {
+    // Skip non-table exports (arrays, types, etc.)
+    if (!exported || typeof exported !== "object") continue;
+    let config;
+    try {
+      config = getTableConfig(exported as any);
+    } catch {
+      continue;
     }
+    const { name: tableName, columns } = config;
+    for (const col of columns) {
+      // Skip primary keys — they're part of initial CREATE TABLE and can't
+      // be retrofitted as nullable afterwards. drizzle-kit push handles
+      // new tables fine; it only fumbles on new columns of existing ones.
+      if (col.primary) continue;
+      const type = col.getSQLType();
+      const parts = [`ALTER TABLE IF EXISTS "${tableName}" ADD COLUMN IF NOT EXISTS "${col.name}" ${type}`];
+      if (col.notNull) parts.push("NOT NULL");
+      if (col.hasDefault && col.default !== undefined) {
+        const def = typeof col.default === "boolean" ? col.default : JSON.stringify(col.default);
+        parts.push(`DEFAULT ${def}`);
+      }
+      statements.push(parts.join(" "));
+    }
+  }
+
+  try {
+    for (const sql of statements) {
+      try {
+        await pool.query(sql);
+      } catch (e) {
+        // Log-and-continue: a single bad DEFAULT expression shouldn't
+        // block the rest of the column sync.
+        console.warn(`  skipped (${(e as Error).message}): ${sql}`);
+      }
+    }
+    console.log(`  Column sync: checked ${statements.length} columns`);
   } finally {
     await pool.end();
   }
