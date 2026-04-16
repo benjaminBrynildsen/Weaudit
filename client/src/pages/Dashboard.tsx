@@ -127,10 +127,6 @@ function parseMoney(input?: string) {
   return Number.isFinite(n) ? n : 0;
 }
 
-function uid(prefix: string) {
-  return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
-}
-
 export default function Dashboard() {
   const [processorFamily, setProcessorFamily] = useState<ProcessorFamily>("adymo");
   const [level, setLevel] = useState<(typeof levelOptions)[number]>("II");
@@ -186,8 +182,6 @@ export default function Dashboard() {
   const [nonPci, setNonPci] = useState<NonPciRow[]>([]);
   const [downgrades, setDowngrades] = useState<DowngradeRow[]>([]);
   const [downgradesExpanded, setDowngradesExpanded] = useState(false);
-
-  const timers = useRef<number[]>([]);
 
   const isScanning = status === "Scanning";
 
@@ -309,8 +303,6 @@ export default function Dashboard() {
   }
 
   function resetScan() {
-    timers.current.forEach((t) => window.clearTimeout(t));
-    timers.current = [];
     setPhase("idle");
     setStatus("Idle");
     setProgress(0);
@@ -324,135 +316,6 @@ export default function Dashboard() {
         next[k] = { ...baseFields[k], value: "—", confidence: 0.0, page: prev[k].page, override: "" };
       });
       return next;
-    });
-  }
-
-  function startSimulatedScan() {
-    resetScan();
-    setStatus("Scanning");
-    setPhase("classify");
-
-    const schedule = (ms: number, fn: () => void) => {
-      const t = window.setTimeout(fn, ms);
-      timers.current.push(t);
-    };
-
-    schedule(500, () => {
-      setProgress(18);
-      setPhase("extract");
-      setFields((prev) => ({
-        ...prev,
-        processor_detected: { ...prev.processor_detected, value: "commercecontrol_statement", confidence: 0.9, page: 1 },
-        company_dba: { ...prev.company_dba, value: "PATRIOT FLOORING SUPPLIE", confidence: 0.86, page: 1 },
-        mid: { ...prev.mid, value: "737191920880", confidence: 0.95, page: 1 },
-        statement_period: { ...prev.statement_period, value: "12/01/25 – 12/31/25", confidence: 0.94, page: 1 },
-        total_submitted_volume: { ...prev.total_submitted_volume, value: "$289,467.20", confidence: 0.92, page: 1 },
-        amex_volume: { ...prev.amex_volume, value: "$224,793.00", confidence: 0.9, page: 2 },
-        total_fees: { ...prev.total_fees, value: "$2,096.96", confidence: 0.9, page: 1 },
-      }));
-    });
-
-    schedule(1000, () => {
-      setProgress(42);
-      setPhase("non_pci");
-      const r1: NonPciRow = {
-        id: uid("npc"),
-        raw: "NON PCI COMPLIANCE FEE",
-        amount: "$19.95",
-        ref: { page: 4, box: { x: 10, y: 28, w: 54, h: 8 } },
-        status: "Refund Candidate",
-      };
-      setNonPci([r1]);
-      setSelectedEvidenceId(r1.id);
-      setSelectedPage(4);
-    });
-
-    schedule(1500, () => {
-      setProgress(62);
-      setPhase("downgrade");
-
-      const d1: DowngradeRow = {
-        id: uid("dgr"),
-        ofTrans: "—",
-        volume: "$32,324.71",
-        raw: "VISA ASSESSMENT FEE CR .001400 TIMES $32,324.71",
-        revenueLost: "—",
-        ref: { page: 3, box: { x: 8, y: 56, w: 78, h: 9 } },
-        flagged: true,
-        flagReason: "Keyword-triggered: not in rule pack",
-      };
-
-      const d2: DowngradeRow = {
-        id: uid("dgr"),
-        ofTrans: "14",
-        volume: "$18,902.11",
-        raw: "MC EIRF DOWNGRADE (EIRF) 1.95% + $0.10",
-        revenueLost: "$128.44",
-        ref: { page: 3, box: { x: 9, y: 66, w: 80, h: 9 } },
-        flagged: false,
-        flagReason: "",
-      };
-
-      const d3: DowngradeRow = {
-        id: uid("dgr"),
-        ofTrans: "7",
-        volume: "$6,482.60",
-        raw: "VISA CPS RETAIL KEYED (DOWNGRADE) 2.95% + $0.20",
-        revenueLost: "$41.12",
-        ref: { page: 5, box: { x: 10, y: 22, w: 76, h: 9 } },
-        flagged: true,
-        flagReason: "Processor-coded downgrade: CPS Retail Keyed",
-      };
-
-      const d4: DowngradeRow = {
-        id: uid("dgr"),
-        ofTrans: "3",
-        volume: "$2,143.09",
-        raw: "VISA REWARDS DOWNGRADE (MISROUTED) 3.40% + $0.15",
-        revenueLost: "$19.87",
-        ref: { page: 5, box: { x: 10, y: 33, w: 74, h: 9 } },
-        flagged: true,
-        flagReason: "Downgrade keyword + elevated rate",
-      };
-
-      const d5: DowngradeRow = {
-        id: uid("dgr"),
-        ofTrans: "22",
-        volume: "$41,990.23",
-        raw: "DISCOVER DATA USAGE DOWNGRADE 2.60% + $0.15",
-        revenueLost: "$96.55",
-        ref: { page: 7, box: { x: 11, y: 58, w: 77, h: 9 } },
-        flagged: false,
-        flagReason: "",
-      };
-
-      const d6: DowngradeRow = {
-        id: uid("dgr"),
-        ofTrans: "5",
-        volume: "$4,870.44",
-        raw: "VISA INTL CARD (DOWNGRADE) 3.85% + $0.25",
-        revenueLost: "$33.20",
-        ref: { page: 7, box: { x: 11, y: 69, w: 78, h: 9 } },
-        flagged: true,
-        flagReason: "Cross-border / intl tier applied",
-      };
-
-      setDowngrades([d1, d2, d3, d4, d5, d6]);
-    });
-
-    schedule(2100, () => {
-      setProgress(86);
-      setPhase("compute");
-      setFields((prev) => ({
-        ...prev,
-        amex_fees: { ...prev.amex_fees, value: "—", confidence: 0.35, page: 3 },
-      }));
-    });
-
-    schedule(2600, () => {
-      setProgress(100);
-      setPhase("complete");
-      setStatus("Complete");
     });
   }
 
@@ -486,9 +349,15 @@ export default function Dashboard() {
           // Backend automatically scans on upload - no need to trigger again
         }
       },
-      onError: () => {
-        // Fall back to simulated scan on upload failure
-        startSimulatedScan();
+      onError: (error: Error) => {
+        setStatus("Idle");
+        setPhase("idle");
+        setProgress(0);
+        toast({
+          title: "Upload failed",
+          description: error.message || "Something went wrong uploading the statement.",
+          variant: "destructive",
+        });
       },
     });
 
@@ -497,17 +366,13 @@ export default function Dashboard() {
   }
 
   function startScan() {
-    // If we have a current audit that can be re-scanned, trigger it via API
-    if (currentAuditId && !isScanning) {
-      resetScan();
-      setStatus("Scanning");
-      setPhase("classify");
-      setProgress(5);
-      triggerScan.mutate(currentAuditId);
-      return;
-    }
-    // Fallback: run the simulated scan
-    startSimulatedScan();
+    // Rescan requires an existing audit; upload a file first if none is loaded.
+    if (!currentAuditId || isScanning) return;
+    resetScan();
+    setStatus("Scanning");
+    setPhase("classify");
+    setProgress(5);
+    triggerScan.mutate(currentAuditId);
   }
 
   async function handleGatewayLevelChange(newLevel: "II" | "III") {
@@ -718,15 +583,9 @@ export default function Dashboard() {
         flagReason: f.reason || "",
       }));
 
-    if (nonPciFindings.length > 0) setNonPci(nonPciFindings);
-    if (downgradeFindings.length > 0) setDowngrades(downgradeFindings);
+    setNonPci(nonPciFindings);
+    setDowngrades(downgradeFindings);
   }, [findingsData, currentAuditId]);
-
-  useEffect(() => {
-    return () => {
-      timers.current.forEach((t) => window.clearTimeout(t));
-    };
-  }, []);
 
   return (
     <DashboardLayout>
