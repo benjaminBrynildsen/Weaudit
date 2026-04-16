@@ -235,7 +235,15 @@ export function useUpdateFinding() {
       return res.json();
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/findings"] });
+      // useFindings stores its cache under "/api/findings?auditId=…" (per-audit
+      // URL key), so a literal "/api/findings" invalidate never matches. Use a
+      // predicate to catch every findings query regardless of its querystring.
+      qc.invalidateQueries({
+        predicate: (q) =>
+          typeof q.queryKey[0] === "string" && q.queryKey[0].startsWith("/api/findings"),
+      });
+      qc.invalidateQueries({ queryKey: ["/api/audits"] });
+      qc.invalidateQueries({ queryKey: ["/api/reports"] });
     },
   });
 }
