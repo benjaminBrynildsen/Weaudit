@@ -13,6 +13,37 @@
  */
 
 import { storage } from "../storage";
+import { Pool } from "pg";
+
+/**
+ * Idempotent column sync. `drizzle-kit push --force` has silently skipped
+ * adding new nullable columns on some Render deploys, leaving the app to
+ * crash at runtime with "column X of relation Y does not exist". This
+ * list is the belt-and-suspenders fallback — append new entries whenever
+ * the Drizzle schema gains a column. Lives in the seed script (rather
+ * than a separate step) so it runs without needing a render.yaml sync.
+ */
+const ensureColumnStatements: string[] = [
+  `ALTER TABLE IF EXISTS audits ADD COLUMN IF NOT EXISTS error_message text`,
+];
+
+async function ensureColumns() {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) return;
+  const useSSL = !/localhost|127\.0\.0\.1/.test(connectionString);
+  const pool = new Pool({
+    connectionString,
+    ssl: useSSL ? { rejectUnauthorized: false } : undefined,
+  });
+  try {
+    for (const sql of ensureColumnStatements) {
+      console.log(`  ${sql}`);
+      await pool.query(sql);
+    }
+  } finally {
+    await pool.end();
+  }
+}
 
 export const isos = [
   { name: "Fiserv", aliases: ["First Data"] },
@@ -136,6 +167,9 @@ const l3Rules: RuleSeed[] = [
 export const rules: RuleSeed[] = [...l2Rules, ...l3Rules];
 
 export async function seed() {
+  console.log("Ensuring late-added columns exist...");
+  await ensureColumns();
+
   console.log("Seeding via postgres backend...");
 
   // Idempotency: only populate tables that are empty. Any UI edits you've
