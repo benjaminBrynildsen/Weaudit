@@ -94,6 +94,9 @@ type DowngradeRow = {
   ref: EvidenceRef;
   flagged?: boolean;
   flagReason?: string;
+  needsReview?: boolean;
+  reviewReason?: string;
+  page?: number;
 };
 
 type ReviewItem = {
@@ -181,6 +184,7 @@ export default function Dashboard() {
 
   const [nonPci, setNonPci] = useState<NonPciRow[]>([]);
   const [downgrades, setDowngrades] = useState<DowngradeRow[]>([]);
+  const [reviewDowngrades, setReviewDowngrades] = useState<DowngradeRow[]>([]);
   const [downgradesExpanded, setDowngradesExpanded] = useState(false);
 
   const isScanning = status === "Scanning";
@@ -565,26 +569,36 @@ export default function Dashboard() {
         status: "Refund Candidate" as const,
       }));
 
+    const mapDowngrade = (f: (typeof findingsData)[number]): DowngradeRow => ({
+      id: f.findingId,
+      ofTrans: "—",
+      volume: `$${f.amount.toFixed(2)}`,
+      raw: f.rawLine || f.title,
+      downgradeRate: f.rate ? `${f.rate.toFixed(2)}%` : undefined,
+      ifCorrected: f.targetRate ? `${f.targetRate.toFixed(2)}%` : undefined,
+      revenueLost: f.spread != null ? `$${f.spread.toFixed(2)}` : "—",
+      ref: {
+        page: f.page,
+        box: { x: 9, y: Math.max(5, (f.lineNum ?? 1) * 4), w: 78, h: 9 },
+      },
+      flagged: f.severity === "High",
+      flagReason: f.reason || "",
+      needsReview: !!f.needsReview,
+      reviewReason: f.reason || "",
+      page: f.page,
+    });
+
     const downgradeFindings: DowngradeRow[] = findingsData
-      .filter((f) => f.type === "downgrade")
-      .map((f) => ({
-        id: f.findingId,
-        ofTrans: "—",
-        volume: `$${f.amount.toFixed(2)}`,
-        raw: f.rawLine || f.title,
-        downgradeRate: f.rate ? `${f.rate.toFixed(2)}%` : undefined,
-        ifCorrected: f.targetRate ? `${f.targetRate.toFixed(2)}%` : undefined,
-        revenueLost: f.spread != null ? `$${f.spread.toFixed(2)}` : "—",
-        ref: {
-          page: f.page,
-          box: { x: 9, y: Math.max(5, (f.lineNum ?? 1) * 4), w: 78, h: 9 },
-        },
-        flagged: f.severity === "High",
-        flagReason: f.reason || "",
-      }));
+      .filter((f) => f.type === "downgrade" && f.status !== "false_positive" && !f.needsReview)
+      .map(mapDowngrade);
+
+    const reviewFindings: DowngradeRow[] = findingsData
+      .filter((f) => f.type === "downgrade" && f.status !== "false_positive" && f.needsReview)
+      .map(mapDowngrade);
 
     setNonPci(nonPciFindings);
     setDowngrades(downgradeFindings);
+    setReviewDowngrades(reviewFindings);
   }, [findingsData, currentAuditId]);
 
   return (
@@ -703,6 +717,11 @@ export default function Dashboard() {
                       {downgradeRollup.revenueLost > 0 && (
                         <span className="text-yellow-700/70 font-mono">${downgradeRollup.revenueLost.toFixed(2)}</span>
                       )}
+                    </div>
+                  )}
+                  {reviewDowngrades.length > 0 && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-500/10 border border-amber-500/20">
+                      <span className="font-medium text-amber-700">{reviewDowngrades.length} Needs Review</span>
                     </div>
                   )}
                   {findingsData && findingsData.filter(f => f.type === "service_charge" && f.spread != null && f.spread > 0).length > 0 && (
@@ -880,6 +899,97 @@ export default function Dashboard() {
                         </div>
                       </div>
                     </button>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Needs Review Stream — ambiguous downgrade candidates awaiting Confirm/Dismiss */}
+            <div className="rounded-lg border border-border overflow-hidden">
+              <div className="flex items-center justify-between bg-secondary/20 px-3 py-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Badge
+                    data-testid="badge-live-strip-needs-review"
+                    variant="outline"
+                    className="text-[11px] bg-amber-500/10 text-amber-700 border-amber-500/20"
+                  >
+                    Needs Review
+                  </Badge>
+                </div>
+                <p data-testid="text-live-strip-needs-review-count" className="text-xs text-muted-foreground">
+                  {reviewDowngrades.length} rows
+                </p>
+              </div>
+
+              <div className="divide-y divide-border max-h-[220px] overflow-auto">
+                {reviewDowngrades.length === 0 ? (
+                  <div className="p-3">
+                    <p className="text-xs text-muted-foreground">
+                      No ambiguous matches flagged.
+                    </p>
+                  </div>
+                ) : (
+                  reviewDowngrades.map((r) => (
+                    <div
+                      key={r.id}
+                      data-testid={`strip-needs-review-${r.id}`}
+                      className="px-3 py-2 space-y-2"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <button
+                          className="min-w-0 text-left hover:bg-secondary/20 -mx-1 px-1 rounded"
+                          onClick={() => setSelectedDowngrade(r)}
+                        >
+                          <p className="text-xs font-medium truncate">{r.raw}</p>
+                          <p className="text-[11px] text-muted-foreground mt-0.5">
+                            p.{r.page ?? r.ref.page} &middot; {r.downgradeRate ?? "—"} → {r.ifCorrected ?? "—"}
+                          </p>
+                          {r.reviewReason && (
+                            <p className="text-[11px] text-amber-700/90 mt-0.5 line-clamp-2">
+                              {r.reviewReason}
+                            </p>
+                          )}
+                        </button>
+                        <div className="shrink-0 text-right">
+                          <p className="font-mono text-xs">{r.volume}</p>
+                          <p className="font-mono text-[11px] text-muted-foreground mt-0.5">
+                            {r.revenueLost ?? "—"}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-end gap-2">
+                        <Button
+                          data-testid={`button-needs-review-confirm-${r.id}`}
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs bg-amber-500/10 border-amber-500/30 text-amber-800 hover:bg-amber-500/20"
+                          disabled={updateFindingMutation.isPending}
+                          onClick={() =>
+                            updateFindingMutation.mutate({
+                              findingId: r.id,
+                              needsReview: false,
+                            })
+                          }
+                        >
+                          Confirm
+                        </Button>
+                        <Button
+                          data-testid={`button-needs-review-dismiss-${r.id}`}
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs"
+                          disabled={updateFindingMutation.isPending}
+                          onClick={() =>
+                            updateFindingMutation.mutate({
+                              findingId: r.id,
+                              status: "false_positive",
+                            })
+                          }
+                        >
+                          Dismiss
+                        </Button>
+                      </div>
+                    </div>
                   ))
                 )}
               </div>

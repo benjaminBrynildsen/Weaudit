@@ -146,9 +146,11 @@ function AuditDetailPanel({ auditId, onClose }: { auditId: string; onClose: () =
   }
 
   const allFindings = audit.findings ?? [];
-  const nonPci = allFindings.filter((f) => f.type === "non_pci");
-  const downgrades = allFindings.filter((f) => f.type === "downgrade");
-  const serviceCharges = allFindings.filter((f) => f.type === "service_charge");
+  const nonPci = allFindings.filter((f) => f.type === "non_pci" && f.status !== "false_positive");
+  const downgrades = allFindings.filter(
+    (f) => f.type === "downgrade" && f.status !== "false_positive" && !f.needsReview,
+  );
+  const serviceCharges = allFindings.filter((f) => f.type === "service_charge" && f.status !== "false_positive");
   // Show unknown findings that have interchange rates as "Interchange Lines"
   const interchange = allFindings.filter((f) => f.type === "unknown" && f.rate > 0);
   const overcharged = serviceCharges.filter((f) => f.spread != null && f.spread > 0);

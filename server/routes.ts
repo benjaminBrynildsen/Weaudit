@@ -437,9 +437,11 @@ export async function registerRoutes(
       const findings = await storage.getFindingsByAudit(auditId);
       const notices = await storage.getNoticesByAudit(auditId);
 
-      const nonPciFindings = findings.filter((f) => f.type === "non_pci");
-      const downgradeFindings = findings.filter((f) => f.type === "downgrade");
-      const serviceChargeFindings = findings.filter((f) => f.type === "service_charge");
+      const nonPciFindings = findings.filter((f) => f.type === "non_pci" && f.status !== "false_positive");
+      const downgradeFindings = findings.filter(
+        (f) => f.type === "downgrade" && f.status !== "false_positive" && !f.needsReview,
+      );
+      const serviceChargeFindings = findings.filter((f) => f.type === "service_charge" && f.status !== "false_positive");
       // Interchange lines: unknown findings with rates (actual qualification data)
       const interchangeFindings = findings.filter((f) => f.type === "unknown" && f.rate > 0);
 

@@ -29,6 +29,7 @@ export interface DetectionResult {
   recommendedAction: string;
   targetRate?: number;
   spread?: number;
+  needsReview?: boolean;
 }
 
 export function detectNonPci(lines: NormalizedLine[]): { results: DetectionResult[]; matchedIndices: Set<number> } {
@@ -303,9 +304,40 @@ export function detectDowngrades(
           }
         }
 
-        // Skip findings with zero or negligible spread (already at optimal rate)
+        // Line is at / below target. It's not a clear downgrade — but if
+        // the line rate is strictly below the rule's typical rate, the
+        // product category might still be considered a downgrade by some
+        // manual auditors (e.g., Business T5 lines already at 2.25% on a
+        // tax-exempt L3 statement). Emit as a review candidate so the
+        // user can confirm or dismiss. Skip silently for lines already at
+        // the rule's expected rate — those aren't ambiguous.
         if (rateSpread < 0.01) {
-          console.log(`[DEBUG] ⊘ Skipping ${rule.name} on line ${i}: spread ${rateSpread.toFixed(4)} too small (lineRate=${line.rate}, ruleRate=${rule.rate}, actualRate=${actualRate}, target=${rule.targetRate}, raw="${line.raw.substring(0, 80)}")`);
+          if (
+            line.amountIsVolume &&
+            line.rate > 0 &&
+            line.rate < rule.rate - 0.01 &&
+            !rule.informational
+          ) {
+            const theoreticalSpread = rule.rate - rule.targetRate;
+            const theoreticalRevenue = line.amount * theoreticalSpread / 100;
+            results.push({
+              type: "downgrade",
+              title: `${rule.brand === "V" ? "Visa" : "Mastercard"} - ${rule.name}`,
+              category: "Pricing Model",
+              rawLine: line.raw,
+              amount: line.amount,
+              rate: rule.rate,
+              page: line.page,
+              lineNum: line.lineNum,
+              severity: "Low",
+              confidence: "Low",
+              reason: `${rule.reason} — Needs review: statement line is already at ${line.rate.toFixed(2)}%, below the rule's typical ${rule.rate.toFixed(2)}%.`,
+              recommendedAction: `Confirm whether this ${rule.name} line should be treated as a downgrade from ${rule.rate.toFixed(2)}% to ${rule.targetRate.toFixed(2)}%, or left as-is at ${line.rate.toFixed(2)}%.`,
+              targetRate: rule.targetRate,
+              spread: theoreticalRevenue,
+              needsReview: true,
+            });
+          }
           break; // Don't check more rules for this line
         }
 

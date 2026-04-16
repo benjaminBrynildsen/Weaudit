@@ -85,6 +85,7 @@ export const findings = pgTable(
     targetRate: real("target_rate"),
     spread: real("spread"),
     priority: integer("priority"),
+    needsReview: boolean("needs_review").notNull().default(false),
   },
   (t) => ({
     byAudit: index("idx_findings_audit_id").on(t.auditId),

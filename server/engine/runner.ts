@@ -259,6 +259,7 @@ export async function runAuditScan(auditId: string): Promise<void> {
         targetRate: det.targetRate,
         spread: det.spread,
         priority: i + 1,
+        needsReview: det.needsReview ?? false,
       });
 
       // Create unknown fee record for admin review queue

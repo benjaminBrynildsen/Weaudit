@@ -57,6 +57,7 @@ export interface Finding {
   targetRate?: number;
   spread?: number;
   priority?: number;
+  needsReview?: boolean;
 }
 
 export interface DowngradeRule {

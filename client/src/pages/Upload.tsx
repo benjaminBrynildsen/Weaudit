@@ -229,7 +229,9 @@ export default function Upload() {
     if (!localId) return;
 
     const findings = completedAudit.findings;
-    const downgrades = findings.filter((f) => f.type === "downgrade");
+    const downgrades = findings.filter(
+      (f) => f.type === "downgrade" && f.status !== "false_positive" && !f.needsReview,
+    );
     const unknowns = findings.filter((f) => f.type === "unknown");
 
     // Calculate potential savings: sum of estimated revenue lost per downgrade
