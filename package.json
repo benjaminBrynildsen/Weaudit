@@ -13,6 +13,7 @@
     "test": "tsx server/engine/abbreviations.test.ts",
     "export:dynamo": "tsx script/export-dynamo.ts",
     "db:migrate": "tsx script/migrate.ts",
+    "db:ensure-columns": "tsx script/ensure-columns.ts",
     "db:seed": "tsx server/db/seed.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push"
