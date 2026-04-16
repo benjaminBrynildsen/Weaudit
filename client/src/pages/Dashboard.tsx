@@ -580,8 +580,18 @@ export default function Dashboard() {
       // Refetch findings and audit data now that scan is done
       queryClient.invalidateQueries({ queryKey: ["/api/findings?auditId=" + currentAuditId] });
       queryClient.invalidateQueries({ queryKey: ["/api/audits", currentAuditId] });
+    } else if (apiStatus === "failed") {
+      setStatus("Idle");
+      setPhase("idle");
+      setProgress(0);
+      toast({
+        title: "Audit failed",
+        description: auditStatusData.errorMessage || "The scan didn't complete. Check the server logs.",
+        variant: "destructive",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/audits", currentAuditId] });
     }
-  }, [auditStatusData, currentAuditId, queryClient]);
+  }, [auditStatusData, currentAuditId, queryClient, toast]);
 
   // Populate real extracted data when the audit completes
   useEffect(() => {

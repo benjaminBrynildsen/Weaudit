@@ -3,7 +3,7 @@ import { apiRequest } from "./queryClient";
 
 // ── Types (mirror server types) ──────────────────────────────────────────────
 
-export type AuditStatus = "idle" | "scanning" | "needs_review" | "complete";
+export type AuditStatus = "idle" | "scanning" | "needs_review" | "complete" | "failed";
 
 export interface Audit {
   auditId: string;
@@ -23,6 +23,7 @@ export interface Audit {
   statementPeriod?: string;
   processorDetected?: string;
   gatewayLevel?: "II" | "III";
+  errorMessage?: string;
 }
 
 export interface Finding {
@@ -125,7 +126,7 @@ export function useAudit(auditId: string | undefined) {
 }
 
 export function useAuditStatus(auditId: string | undefined, polling = false) {
-  return useQuery<{ auditId: string; status: AuditStatus }>({
+  return useQuery<{ auditId: string; status: AuditStatus; errorMessage?: string }>({
     queryKey: ["/api/audits", auditId, "status"],
     enabled: !!auditId && polling,
     refetchInterval: polling ? 1000 : false,

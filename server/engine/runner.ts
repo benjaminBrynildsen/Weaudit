@@ -8,7 +8,9 @@ import { detectInterchangeSection, filterInterchangeLines } from "./section-dete
 import { StatementParserFactory } from "./parsers/parser-factory";
 
 export async function runAuditScan(auditId: string): Promise<void> {
-  // Update status to scanning
+  // Update status to scanning. Any stale errorMessage from a previous run
+  // stays in the column but is only surfaced when status === "failed", so
+  // it doesn't need to be cleared here.
   await storage.updateAudit(auditId, { status: "scanning" });
 
   try {
@@ -347,7 +349,12 @@ export async function runAuditScan(auditId: string): Promise<void> {
     });
   } catch (error) {
     console.error(`Scan failed for audit ${auditId}:`, error);
-    await storage.updateAudit(auditId, { status: "idle" });
+    const err = error as Error;
+    const message = `${err.name || "Error"}: ${err.message || String(error)}`;
+    await storage.updateAudit(auditId, {
+      status: "failed",
+      errorMessage: message.slice(0, 2000),
+    });
     throw error;
   }
 }

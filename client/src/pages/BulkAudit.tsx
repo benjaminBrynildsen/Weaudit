@@ -136,16 +136,24 @@ export default function BulkAudit() {
     setEntries((prev) => prev.filter((e) => e.status !== "complete" && e.status !== "error"));
   };
 
-  // Poll audit status until it finishes
+  // Poll audit status until it finishes. Throws on "failed" so the caller's
+  // catch can surface the error; swallows transient fetch errors and retries.
   const waitForAudit = useCallback(async (auditId: string): Promise<AuditStatus> => {
     for (let i = 0; i < 120; i++) {
       await new Promise((r) => setTimeout(r, 2000));
+      let data: { status: AuditStatus; errorMessage?: string } | undefined;
       try {
         const res = await fetch(`/api/audits/${auditId}/status`, { credentials: "include" });
         if (!res.ok) continue;
-        const data = await res.json();
-        if (data.status === "complete" || data.status === "needs_review") return data.status;
-      } catch { /* retry */ }
+        data = await res.json();
+      } catch {
+        continue;
+      }
+      if (!data) continue;
+      if (data.status === "complete" || data.status === "needs_review") return data.status;
+      if (data.status === "failed") {
+        throw new Error(data.errorMessage || "Scan failed without a reported reason.");
+      }
     }
     return "needs_review"; // timeout fallback
   }, []);
