@@ -82,6 +82,8 @@ export interface Company {
   companyId: string;
   name: string;
   mid: string;
+  dba: string;
+  aliases: string[];
   createdAt: string;
   updatedAt: string;
   auditLevel: string;
@@ -111,6 +113,7 @@ export interface Company {
   riskLevel: string;
   adjustedEffectiveRate: number;
   actualOldEffectiveRate: number;
+  taxExempt: boolean;
 }
 
 // ── Hooks ────────────────────────────────────────────────────────────────────

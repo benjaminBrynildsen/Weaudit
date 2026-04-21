@@ -50,6 +50,8 @@ type SortDir = "asc" | "desc";
 const EMPTY_FORM: Omit<Company, "companyId" | "createdAt" | "updatedAt"> = {
   name: "",
   mid: "",
+  dba: "",
+  aliases: [],
   auditLevel: "Level II",
   auditor: "",
   paymentMethod: "",
@@ -446,6 +448,34 @@ export default function Companies() {
                 <div className="space-y-1.5">
                   <Label>MID</Label>
                   <Input value={form.mid} onChange={(e) => setField("mid", e.target.value)} placeholder="0880" className="font-mono" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>DBA</Label>
+                  <Input
+                    value={form.dba}
+                    onChange={(e) => setField("dba", e.target.value)}
+                    placeholder="Name as it appears on the statement"
+                  />
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label>Aliases</Label>
+                  <Input
+                    value={(form.aliases ?? []).join(", ")}
+                    onChange={(e) =>
+                      setField(
+                        "aliases",
+                        e.target.value
+                          .split(",")
+                          .map((s) => s.trim())
+                          .filter(Boolean),
+                      )
+                    }
+                    placeholder="Comma-separated — e.g. Shore Distributors LLC, Shore Dist, SHORE_DIST"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Alternate names used on statements or filenames. Helps the engine match when the DBA
+                    differs from the company name.
+                  </p>
                 </div>
                 <div className="space-y-1.5">
                   <Label>Audit Level</Label>

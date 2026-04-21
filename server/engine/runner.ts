@@ -126,11 +126,27 @@ export async function runAuditScan(auditId: string): Promise<void> {
           return true;
         }
       }
-      // Fallback: match by name
-      if (!audit?.clientName) return false;
-      const clientLower = audit.clientName.toLowerCase();
-      const companyLower = c.name.toLowerCase();
-      return companyLower.includes(clientLower) || clientLower.includes(companyLower);
+      // Fallback: bidirectional substring match against the company's name,
+      // registered DBA, listed aliases, and the DBA extracted from the
+      // statement itself. We normalize separators so SHORE_DISTRIBUTORS,
+      // "Shore-Distributors", and "Shore Distributors" all match.
+      const normalize = (s: string) =>
+        s.toLowerCase().replace(/[_\-\.,]+/g, " ").replace(/\s+/g, " ").trim();
+      const candidates = [
+        audit?.clientName,
+        audit?.dba,
+      ]
+        .filter((v): v is string => !!v && v.length > 0)
+        .map(normalize);
+      if (candidates.length === 0) return false;
+
+      const companyHaystacks = [c.name, c.dba, ...(c.aliases ?? [])]
+        .filter((v): v is string => !!v && v.length > 0)
+        .map(normalize);
+
+      return candidates.some((cand) =>
+        companyHaystacks.some((hay) => hay.includes(cand) || cand.includes(hay)),
+      );
     });
     console.log(`[Audit ${auditId}] Company match: ${matchedCompany?.name || "none"}`);
 

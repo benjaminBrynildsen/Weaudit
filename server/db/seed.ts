@@ -56,8 +56,18 @@ async function ensureColumns() {
       const parts = [`ALTER TABLE IF EXISTS "${tableName}" ADD COLUMN IF NOT EXISTS "${col.name}" ${type}`];
       if (col.notNull) parts.push("NOT NULL");
       if (col.hasDefault && col.default !== undefined) {
-        const def = typeof col.default === "boolean" ? col.default : JSON.stringify(col.default);
-        parts.push(`DEFAULT ${def}`);
+        // Serialize JS defaults into valid SQL literals. Postgres doesn't
+        // accept JSON-stringified arrays/objects as column defaults — an
+        // empty array must be `'{}'::text[]`, strings must be single-quoted.
+        let def: string | null = null;
+        if (typeof col.default === "boolean") def = String(col.default);
+        else if (typeof col.default === "number") def = String(col.default);
+        else if (typeof col.default === "string") def = `'${col.default.replace(/'/g, "''")}'`;
+        else if (Array.isArray(col.default)) {
+          if (col.default.length === 0) def = `'{}'`;
+          else def = `ARRAY[${col.default.map((v: unknown) => `'${String(v).replace(/'/g, "''")}'`).join(",")}]`;
+        }
+        if (def !== null) parts.push(`DEFAULT ${def}`);
       }
       statements.push(parts.join(" "));
     }

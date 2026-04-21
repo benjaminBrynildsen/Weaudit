@@ -169,6 +169,12 @@ export const users = pgTable(
 export const companies = pgTable("companies", {
   companyId: uuid("company_id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
+  mid: text("mid").notNull().default(""),
+  dba: text("dba").notNull().default(""),
+  // Alternate names we might see on a statement or in a filename — used so the
+  // runner can match e.g. `SHORE_DISTRIBUTORS.pdf` to a company stored as
+  // "Shore Distributors LLC" or DBA "Shore Dist."
+  aliases: text("aliases").array().notNull().default([]),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
   auditLevel: text("audit_level").notNull(),

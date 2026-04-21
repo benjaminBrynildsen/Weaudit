@@ -116,6 +116,9 @@ export interface User {
 export interface Company {
   companyId: string;
   name: string;
+  mid: string;
+  dba: string;
+  aliases: string[];
   createdAt: string;
   updatedAt: string;
   auditLevel: string;
