@@ -1670,8 +1670,11 @@ export default function Dashboard() {
               <Button
                 data-testid="button-generate-report"
                 className="bg-foreground text-background hover:bg-foreground/90"
+                disabled={!currentAuditId}
                 onClick={() => {
-                  window.location.href = "/report";
+                  if (currentAuditId) {
+                    window.location.href = `/report?auditId=${currentAuditId}`;
+                  }
                 }}
               >
                 <FileText className="w-4 h-4 mr-2" />

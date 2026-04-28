@@ -17,6 +17,7 @@ import { Pool } from "pg";
 
 const statements: string[] = [
   `ALTER TABLE IF EXISTS audits ADD COLUMN IF NOT EXISTS error_message text`,
+  `ALTER TABLE IF EXISTS findings ADD COLUMN IF NOT EXISTS transaction_count integer`,
 ];
 
 async function main() {

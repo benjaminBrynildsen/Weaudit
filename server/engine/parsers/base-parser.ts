@@ -11,6 +11,11 @@ export interface NormalizedLine {
   page: number;
   lineNum: number;
   amountIsVolume: boolean;
+  // Number of underlying transactions this line represents. Audit-report
+  // PDFs put this in the "# of Trans" column at the start of each row.
+  // Raw merchant statements typically have one transaction per line, so
+  // this defaults to 1 when the parser can't determine it.
+  transactionCount?: number;
 }
 
 export interface ExtractedFields {

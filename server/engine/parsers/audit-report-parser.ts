@@ -43,6 +43,7 @@ export class AuditReportParser extends BaseStatementParser {
       const stubCandidates: Array<{
         rawIndex: number;
         amount: number;
+        transactionCount: number;
       }> = [];
       const consumedStubIndices = new Set<number>();
 
@@ -62,6 +63,7 @@ export class AuditReportParser extends BaseStatementParser {
         if (dgMatch) {
           const volume = this.parseAmount("$" + dgMatch[2]);
           const rate = parseFloat(dgMatch[4]);
+          const transactionCount = parseInt(dgMatch[1], 10);
           lines.push({
             raw,
             amount: volume,
@@ -69,6 +71,7 @@ export class AuditReportParser extends BaseStatementParser {
             page: page.pageNum,
             lineNum: i + 1,
             amountIsVolume: true,
+            transactionCount: Number.isFinite(transactionCount) ? transactionCount : 1,
           });
           continue;
         }
@@ -78,6 +81,7 @@ export class AuditReportParser extends BaseStatementParser {
         const npcInline = raw.match(/^(\d+)\s+\$([\d,]+\.?\d*)\s+(NON\s*PCI\s*FEE)/i);
         if (npcInline) {
           const amount = this.parseAmount("$" + npcInline[2]);
+          const transactionCount = parseInt(npcInline[1], 10);
           lines.push({
             raw,
             amount,
@@ -85,6 +89,7 @@ export class AuditReportParser extends BaseStatementParser {
             page: page.pageNum,
             lineNum: i + 1,
             amountIsVolume: false,
+            transactionCount: Number.isFinite(transactionCount) ? transactionCount : 1,
           });
           continue;
         }
@@ -94,9 +99,11 @@ export class AuditReportParser extends BaseStatementParser {
         // NON PCI FEE row whose name half lands further down.
         const stub = raw.match(/^(\d+)\s+\$([\d,]+\.?\d*)\s*$/);
         if (stub) {
+          const stubCount = parseInt(stub[1], 10);
           stubCandidates.push({
             rawIndex: i,
             amount: this.parseAmount("$" + stub[2]),
+            transactionCount: Number.isFinite(stubCount) ? stubCount : 1,
           });
           continue;
         }
@@ -110,11 +117,13 @@ export class AuditReportParser extends BaseStatementParser {
           // backwards through the candidates so we attach the closest
           // preceding stub (matches the visual reading order of the PDF).
           let pairedAmount = 0;
+          let pairedCount = 1;
           for (let s = stubCandidates.length - 1; s >= 0; s--) {
             const cand = stubCandidates[s];
             if (consumedStubIndices.has(cand.rawIndex)) continue;
             if (cand.rawIndex < i) {
               pairedAmount = cand.amount;
+              pairedCount = cand.transactionCount;
               consumedStubIndices.add(cand.rawIndex);
               break;
             }
@@ -126,6 +135,7 @@ export class AuditReportParser extends BaseStatementParser {
             page: page.pageNum,
             lineNum: i + 1,
             amountIsVolume: false,
+            transactionCount: pairedCount,
           });
         }
       }

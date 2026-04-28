@@ -30,6 +30,11 @@ export interface DetectionResult {
   targetRate?: number;
   spread?: number;
   needsReview?: boolean;
+  // Underlying transaction count for this detection. Audit-report PDFs
+  // emit one normalized line per downgrade group with the full count
+  // already aggregated; raw merchant statements typically have one
+  // transaction per line. Defaults to 1 when not supplied.
+  transactionCount?: number;
 }
 
 export function detectNonPci(lines: NormalizedLine[]): { results: DetectionResult[]; matchedIndices: Set<number> } {
@@ -58,6 +63,7 @@ export function detectNonPci(lines: NormalizedLine[]): { results: DetectionResul
           recommendedAction: "Complete PCI SAQ, submit attestation, and request refund for recent months",
           targetRate: 0,
           spread: line.rate,
+          transactionCount: line.transactionCount,
         });
         break; // one match per line is enough
       }
@@ -336,6 +342,7 @@ export function detectDowngrades(
               targetRate: rule.targetRate,
               spread: theoreticalRevenue,
               needsReview: true,
+              transactionCount: line.transactionCount,
             });
           }
           break; // Don't check more rules for this line
@@ -363,6 +370,7 @@ export function detectDowngrades(
           recommendedAction: `Review interchange qualification. Target rate: ${rule.targetRate.toFixed(2)}%. Current spread: ${rateSpread.toFixed(2)}%`,
           targetRate: rule.targetRate,
           spread: revenueLost,
+          transactionCount: line.transactionCount,
         });
         break; // first matching rule wins for this line
       }

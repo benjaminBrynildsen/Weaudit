@@ -461,20 +461,24 @@ export async function registerRoutes(
 
       // Group downgrade findings by rule name for report table
       // f.spread is now stored as estimated revenue lost in dollars
+      // f.transactionCount, when present, is the underlying # of transactions
+      // Amanda recorded for that row in her audit PDF; otherwise we default
+      // to 1 (one finding row = one transaction on a raw statement).
       const sevRank = (s: string) => s === "High" ? 0 : s === "Medium" ? 1 : 2;
       const downgradeGroups = new Map<string, { count: number; volume: number; rate: string; revenueLost: number; reasons: string; severity: string }>();
       for (const f of downgradeFindings) {
         const key = f.title;
         const rateSpread = (f.rate && f.targetRate) ? Math.max(0, f.rate - f.targetRate) : 0;
+        const txCount = f.transactionCount ?? 1;
         const existing = downgradeGroups.get(key);
         if (existing) {
-          existing.count += 1;
+          existing.count += txCount;
           existing.volume += f.amount;
           existing.revenueLost += f.spread || 0;
           if (sevRank(f.severity) < sevRank(existing.severity)) existing.severity = f.severity;
         } else {
           downgradeGroups.set(key, {
-            count: 1,
+            count: txCount,
             volume: f.amount,
             rate: rateSpread > 0 ? `+${rateSpread.toFixed(2)}%` : "—",
             revenueLost: f.spread || 0,
@@ -522,7 +526,7 @@ export async function registerRoutes(
           nonPci: nonPciFindings.length > 0
             ? [{
                 label: "Non-PCI fee",
-                count: nonPciFindings.length,
+                count: nonPciFindings.reduce((s, f) => s + (f.transactionCount ?? 1), 0),
                 volume: "$0",
                 rate: "—",
                 revenueLost: money(totalNonPci),

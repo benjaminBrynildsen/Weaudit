@@ -58,6 +58,9 @@ export interface Finding {
   spread?: number;
   priority?: number;
   needsReview?: boolean;
+  // For audit-report PDFs this is the "# of Trans" value Amanda recorded.
+  // For raw merchant statements it defaults to 1 (one transaction per row).
+  transactionCount?: number;
 }
 
 export interface DowngradeRule {

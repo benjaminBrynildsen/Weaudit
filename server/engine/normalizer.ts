@@ -9,6 +9,9 @@ export interface NormalizedLine {
   page: number;
   lineNum: number;
   amountIsVolume: boolean;
+  // Underlying transaction count when known (audit-report PDFs supply it
+  // via the "# of Trans" column). Optional; defaults to 1 when absent.
+  transactionCount?: number;
 }
 
 export interface ExtractedFields {
