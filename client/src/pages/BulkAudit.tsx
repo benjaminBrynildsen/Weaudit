@@ -4,6 +4,14 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   UploadCloud,
   FileText,
@@ -19,6 +27,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import type { AuditStatus } from "@/lib/api";
+
+type GatewayLevel = "II" | "III";
 
 type BulkFileStatus = "queued" | "uploading" | "scanning" | "complete" | "needs_review" | "error";
 
@@ -79,6 +89,11 @@ export default function BulkAudit() {
   const [, setLocation] = useLocation();
 
   const [isRunning, setIsRunning] = useState(false);
+  // Gateway Level applies to every file in the batch. Without it the runner
+  // skips its rule filter and matches both L2 and L3 rules on every line,
+  // which doubles findings and corrupts target rates. Default to L2 to mirror
+  // the single-upload page.
+  const [gatewayLevel, setGatewayLevel] = useState<GatewayLevel>("II");
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -174,6 +189,7 @@ export default function BulkAudit() {
         // Upload via single-file endpoint
         const formData = new FormData();
         formData.append("file", entry.file);
+        formData.append("gatewayLevel", gatewayLevel);
 
         const res = await fetch("/api/upload", {
           method: "POST",
@@ -219,7 +235,7 @@ export default function BulkAudit() {
       title: "Bulk audit complete",
       description: `Processed ${queued.length} file${queued.length !== 1 ? "s" : ""}.`,
     });
-  }, [entries, isRunning, toast, waitForAudit]);
+  }, [entries, isRunning, toast, waitForAudit, gatewayLevel]);
 
   const totalFiles = entries.length;
   const completedFiles = entries.filter((e) => e.status === "complete" || e.status === "needs_review").length;
@@ -230,18 +246,38 @@ export default function BulkAudit() {
     <DashboardLayout>
       <div className="space-y-6 max-w-5xl mx-auto">
         {/* Header */}
-        <div className="flex items-start justify-between">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="space-y-1">
             <h1 className="text-3xl font-bold font-heading tracking-tight">Bulk Audit</h1>
             <p className="text-muted-foreground">
               Drop multiple statements at once. Processor and company details are auto-detected.
             </p>
           </div>
-          {totalFiles > 0 && (
-            <div className="text-right text-sm text-muted-foreground">
-              <span className="font-mono font-semibold text-foreground">{completedFiles}</span> / {totalFiles} complete
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="bulk-gateway-level" className="text-sm whitespace-nowrap">
+                Gateway Level
+              </Label>
+              <Select
+                value={gatewayLevel}
+                onValueChange={(v) => setGatewayLevel(v as GatewayLevel)}
+                disabled={isRunning}
+              >
+                <SelectTrigger id="bulk-gateway-level" className="w-[140px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="II">Level II</SelectItem>
+                  <SelectItem value="III">Level III</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-          )}
+            {totalFiles > 0 && (
+              <div className="text-right text-sm text-muted-foreground">
+                <span className="font-mono font-semibold text-foreground">{completedFiles}</span> / {totalFiles} complete
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Drop zone */}
