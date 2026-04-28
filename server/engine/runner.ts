@@ -165,10 +165,27 @@ export async function runAuditScan(auditId: string): Promise<void> {
       );
     }
 
+    // `nonPciIndices` are indices into `normalizedLines`, not the
+    // filtered `interchangeLines` we pass below. Translate by raw-line
+    // identity so we don't accidentally suppress a legitimate downgrade
+    // whose position in the filtered list happens to collide with a
+    // non-PCI row's position in the unfiltered list.
+    const nonPciRaws = new Set<string>();
+    for (const idx of nonPciIndices) {
+      const line = normalizedLines[idx];
+      if (line) nonPciRaws.add(line.raw);
+    }
+    const nonPciExcludeForInterchange = new Set<number>();
+    for (let i = 0; i < interchangeLines.length; i++) {
+      if (nonPciRaws.has(interchangeLines[i].raw)) {
+        nonPciExcludeForInterchange.add(i);
+      }
+    }
+
     const { results: downgradeResults, matchedIndices: downgradeIndices, matchedRuleIds } = detectDowngrades(
       interchangeLines,  // Only scan interchange section, not all lines
       downgradeRules,
-      nonPciIndices,
+      nonPciExcludeForInterchange,
       processorName,
     );
 

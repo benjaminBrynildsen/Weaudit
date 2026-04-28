@@ -21,3 +21,6 @@ docs/training/
 /BUGFIX_SUMMARY.md
 /IMPLEMENTATION_CHECKLIST.md
 docs/SESSION_LOG.md
+
+# Generated output from batch test scripts
+script/out/

@@ -33,14 +33,31 @@ export class AuditReportParser extends BaseStatementParser {
 
     for (const page of pages) {
       const textLines = page.text.split("\n");
+
+      // Track unmatched "(\d+)\s+\$amount" stub lines that may belong to a
+      // fragmented row whose name/rate appears on a later line. pdf-parse
+      // can split rows with $0 trailing values across two physical lines:
+      //   "1 \t$99.99"                               (count + volume)
+      //   "NON PCI FEE \t$0.00 \t0.00%"              (name + zero values)
+      // We pair them up after the line-by-line pass.
+      const stubCandidates: Array<{
+        rawIndex: number;
+        amount: number;
+      }> = [];
+      const consumedStubIndices = new Set<number>();
+
       for (let i = 0; i < textLines.length; i++) {
         const raw = textLines[i].trim();
         if (!raw || raw.length < 5) continue;
 
         // Match downgrade rows: count \t $volume \t name \t rate% \t target% \t $revenue_lost
-        // Example: "1 	$6,254.05 	M-BUS LEVEL 5 DATA RATE 1 	3.00% 	2.25% 	$46.91"
+        // The trailing $revenue_lost is OPTIONAL — pdf-parse fragments
+        // rows whose revenue lost is $0 onto a subsequent line, so we
+        // accept the row once we have two percentages.
+        // Example (full):    "1 	$6,254.05 	M-BUS LEVEL 5 DATA RATE 1 	3.00% 	2.25% 	$46.91"
+        // Example (no rev):  "1 	$0.47 	V - Business T5 Product 1 	3.00% 	2.25%"
         const dgMatch = raw.match(
-          /^(\d+)\s+\$([\d,]+\.?\d*)\s+(.+?)\s+(\d+\.?\d*)\s*%\s+(\d+\.?\d*)\s*%\s+\$([\d,]+\.?\d*)/
+          /^(\d+)\s+\$([\d,]+\.?\d*)\s+(.+?)\s+(\d+\.?\d*)\s*%\s+(\d+\.?\d*)\s*%(?:\s+\$([\d,]+\.?\d*))?/
         );
         if (dgMatch) {
           const volume = this.parseAmount("$" + dgMatch[2]);
@@ -56,13 +73,55 @@ export class AuditReportParser extends BaseStatementParser {
           continue;
         }
 
-        // Also capture NON PCI FEE lines: "1 	$149.99 	NON PCI FEE 	$0.00"
-        const npcMatch = raw.match(/^(\d+)\s+\$([\d,]+\.?\d*)\s+(NON\s*PCI\s*FEE)/i);
-        if (npcMatch) {
-          const amount = this.parseAmount("$" + npcMatch[2]);
+        // Capture NON PCI FEE rows that arrived intact on one line:
+        //   "1 \t$149.99 \tNON PCI FEE \t$0.00"
+        const npcInline = raw.match(/^(\d+)\s+\$([\d,]+\.?\d*)\s+(NON\s*PCI\s*FEE)/i);
+        if (npcInline) {
+          const amount = this.parseAmount("$" + npcInline[2]);
           lines.push({
             raw,
             amount,
+            rate: 0,
+            page: page.pageNum,
+            lineNum: i + 1,
+            amountIsVolume: false,
+          });
+          continue;
+        }
+
+        // Capture standalone count+$amount stubs (no name, no percentages).
+        // These often represent the count + volume half of a fragmented
+        // NON PCI FEE row whose name half lands further down.
+        const stub = raw.match(/^(\d+)\s+\$([\d,]+\.?\d*)\s*$/);
+        if (stub) {
+          stubCandidates.push({
+            rawIndex: i,
+            amount: this.parseAmount("$" + stub[2]),
+          });
+          continue;
+        }
+
+        // Capture fragmented NON PCI FEE lines:
+        //   "NON PCI FEE \t$0.00 \t0.00%"
+        // We pair this with the most recent unconsumed stub so the engine
+        // sees the actual fee dollars.
+        if (/NON\s*PCI\s*FEE/i.test(raw)) {
+          // Pull a stub whose source line came BEFORE the name. Walk
+          // backwards through the candidates so we attach the closest
+          // preceding stub (matches the visual reading order of the PDF).
+          let pairedAmount = 0;
+          for (let s = stubCandidates.length - 1; s >= 0; s--) {
+            const cand = stubCandidates[s];
+            if (consumedStubIndices.has(cand.rawIndex)) continue;
+            if (cand.rawIndex < i) {
+              pairedAmount = cand.amount;
+              consumedStubIndices.add(cand.rawIndex);
+              break;
+            }
+          }
+          lines.push({
+            raw,
+            amount: pairedAmount,
             rate: 0,
             page: page.pageNum,
             lineNum: i + 1,
