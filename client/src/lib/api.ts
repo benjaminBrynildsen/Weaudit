@@ -123,7 +123,14 @@ export function useAudits() {
 }
 
 export function useAudit(auditId: string | undefined) {
-  return useQuery<Audit & { findings: Finding[]; statements: any[]; notices: Notice[] }>({
+  return useQuery<
+    Audit & {
+      findings: Finding[];
+      statements: any[];
+      notices: Notice[];
+      companyMatch?: { matched: boolean; companyId?: string; companyName?: string };
+    }
+  >({
     queryKey: ["/api/audits", auditId],
     enabled: !!auditId,
   });

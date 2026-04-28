@@ -5,6 +5,7 @@ import path from "path";
 import fs from "fs";
 import { storage } from "./storage";
 import { runAuditScan } from "./engine/runner";
+import { matchAuditToCompany } from "./engine/match-company";
 import { requireAuth } from "./auth/middleware";
 
 const upload = multer({
@@ -62,8 +63,18 @@ export async function registerRoutes(
       const findings = await storage.getFindingsByAudit(id);
       const statements = await storage.getStatementsByAudit(id);
       const notices = await storage.getNoticesByAudit(id);
+      // Use the same matching logic the runner used during scan, so the
+      // client can prompt to add a missing company without re-implementing
+      // suffix-MID + name fallback rules in the browser.
+      const companies = await storage.listCompanies();
+      const matchedCompany = matchAuditToCompany(audit, companies);
+      const companyMatch = {
+        matched: !!matchedCompany,
+        companyId: matchedCompany?.companyId,
+        companyName: matchedCompany?.name,
+      };
 
-      res.json({ ...audit, findings, statements, notices });
+      res.json({ ...audit, findings, statements, notices, companyMatch });
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
     }
@@ -387,7 +398,31 @@ export async function registerRoutes(
 
   app.post("/api/companies", async (req: Request, res: Response) => {
     try {
-      const company = await storage.createCompany(req.body);
+      const { fromAuditId, ...companyInput } = req.body || {};
+      const company = await storage.createCompany(companyInput);
+
+      // When the create came from an "Add company" prompt on an audit
+      // page, retroactively backfill the originating audit's MID with
+      // the canonical one we just stored. Mirrors the in-scan promotion
+      // in runner.ts so users don't have to re-run a scan to see the
+      // full MID on a report that was processed from a partial-MID
+      // audit-report PDF.
+      if (typeof fromAuditId === "string" && fromAuditId.length > 0) {
+        const audit = await storage.getAudit(fromAuditId);
+        if (audit && company.mid) {
+          const auditDigits = (audit.mid || "").replace(/\D/g, "");
+          const companyDigits = company.mid.replace(/\D/g, "");
+          const shouldPromote =
+            !auditDigits ||
+            (companyDigits.length > auditDigits.length &&
+              companyDigits.endsWith(auditDigits) &&
+              auditDigits.length >= 3);
+          if (shouldPromote) {
+            await storage.updateAudit(fromAuditId, { mid: company.mid });
+          }
+        }
+      }
+
       res.status(201).json(company);
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });

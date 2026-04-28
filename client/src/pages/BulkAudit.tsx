@@ -22,11 +22,13 @@ import {
   X,
   Sparkles,
   Files,
+  Building2,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import type { AuditStatus } from "@/lib/api";
+import AddCompanyDialog from "@/components/AddCompanyDialog";
 
 type GatewayLevel = "II" | "III";
 
@@ -41,6 +43,10 @@ type BulkFileEntry = {
   merchant?: string;
   processorDetected?: string;
   findings?: { nonPci: number; downgrades: number; revenueLost: number };
+  // Whether this audit's merchant already exists in the Companies table.
+  // Populated alongside `findings` when the post-scan summary is fetched.
+  // `undefined` = not checked yet; `false` = no match → show "Add" button.
+  companyMatched?: boolean;
   error?: string;
 };
 
@@ -94,6 +100,10 @@ export default function BulkAudit() {
   // which doubles findings and corrupts target rates. Default to L2 to mirror
   // the single-upload page.
   const [gatewayLevel, setGatewayLevel] = useState<GatewayLevel>("II");
+  // "Add company" prompt state — shared across all rows. Stores the entry
+  // we're prompting for so the dialog can prefill its fields and the
+  // success handler knows which row to mark matched.
+  const [addCompanyForEntry, setAddCompanyForEntry] = useState<BulkFileEntry | null>(null);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -214,6 +224,7 @@ export default function BulkAudit() {
         let summary: BulkFileEntry["findings"];
         let merchant: string | undefined;
         let processorDetected: string | undefined;
+        let companyMatched: boolean | undefined;
         try {
           const detailRes = await fetch(`/api/audits/${auditId}`, { credentials: "include" });
           if (detailRes.ok) {
@@ -237,6 +248,7 @@ export default function BulkAudit() {
             };
             merchant = detail.dba || detail.clientName;
             processorDetected = detail.processorDetected;
+            companyMatched = detail.companyMatch?.matched === true;
           }
         } catch {
           // Summary is best-effort — don't fail the whole entry if it can't load.
@@ -252,6 +264,7 @@ export default function BulkAudit() {
                   findings: summary,
                   merchant: merchant || e.merchant,
                   processorDetected: processorDetected || e.processorDetected,
+                  companyMatched,
                 }
               : e,
           ),
@@ -481,6 +494,20 @@ export default function BulkAudit() {
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
+                    {(entry.status === "complete" || entry.status === "needs_review") && entry.companyMatched === false && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-blue-500/30 text-blue-700 hover:bg-blue-500/10"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setAddCompanyForEntry(entry);
+                        }}
+                      >
+                        <Building2 className="w-3.5 h-3.5 mr-1.5" />
+                        Add company
+                      </Button>
+                    )}
                     {(entry.status === "complete" || entry.status === "needs_review") && entry.auditId && (
                       <Button
                         size="sm"
@@ -514,6 +541,26 @@ export default function BulkAudit() {
           </Card>
         )}
       </div>
+
+      <AddCompanyDialog
+        open={!!addCompanyForEntry}
+        onOpenChange={(o) => { if (!o) setAddCompanyForEntry(null); }}
+        defaultName={addCompanyForEntry?.merchant || addCompanyForEntry?.file.name.replace(/\.[^.]+$/, "") || ""}
+        defaultProcessor={addCompanyForEntry?.processorDetected}
+        fromAuditId={addCompanyForEntry?.auditId}
+        onCreated={() => {
+          // Mark the row as matched so the button hides without a refetch
+          if (addCompanyForEntry) {
+            setEntries((prev) =>
+              prev.map((e) =>
+                e.id === addCompanyForEntry.id
+                  ? { ...e, companyMatched: true }
+                  : e,
+              ),
+            );
+          }
+        }}
+      />
     </DashboardLayout>
   );
 }

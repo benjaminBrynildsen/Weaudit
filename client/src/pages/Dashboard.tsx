@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
+import AddCompanyDialog from "@/components/AddCompanyDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -141,6 +142,7 @@ export default function Dashboard() {
   const [excludeAmex, setExcludeAmex] = useState<boolean>(true);
 
   const [currentAuditId, setCurrentAuditId] = useState<string | undefined>(undefined);
+  const [addCompanyOpen, setAddCompanyOpen] = useState(false);
 
   const [selectedPage, setSelectedPage] = useState<number>(1);
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
@@ -679,6 +681,20 @@ export default function Dashboard() {
                     <Building2 className="w-3.5 h-3.5 mr-1.5" />
                     {auditData.processorDetected}
                   </Badge>
+                )}
+
+                {currentAuditId &&
+                  (status === "Complete" || status === "Needs Review") &&
+                  auditData?.companyMatch?.matched === false && (
+                  <Button
+                    data-testid="button-add-company-from-audit"
+                    variant="outline"
+                    className="h-10 border-blue-500/30 text-blue-700 hover:bg-blue-500/10"
+                    onClick={() => setAddCompanyOpen(true)}
+                  >
+                    <Building2 className="w-4 h-4 mr-2" />
+                    Add company
+                  </Button>
                 )}
 
                 <Button data-testid="button-reset-scan" variant="ghost" className="h-10" onClick={resetScan}>
@@ -1871,6 +1887,22 @@ export default function Dashboard() {
             return sum + (isNaN(lost) ? 0 : lost);
           }, 0)
         }
+      />
+
+      <AddCompanyDialog
+        open={addCompanyOpen}
+        onOpenChange={setAddCompanyOpen}
+        defaultName={auditData?.dba || auditData?.clientName}
+        defaultMid={auditData?.mid}
+        defaultProcessor={auditData?.processorDetected}
+        fromAuditId={currentAuditId}
+        onCreated={() => {
+          // The server backfills the audit's MID for us; refetch the
+          // detail so the Add-company button hides and any partial-MID
+          // shown on the page swaps to the canonical one.
+          queryClient.invalidateQueries({ queryKey: ["/api/audits", currentAuditId] });
+          queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+        }}
       />
     </DashboardLayout>
   );

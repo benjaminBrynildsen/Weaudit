@@ -6,6 +6,7 @@ import { storage } from "../storage";
 import type { Finding } from "../storage";
 import { detectInterchangeSection, filterInterchangeLines } from "./section-detector";
 import { StatementParserFactory } from "./parsers/parser-factory";
+import { matchAuditToCompany } from "./match-company";
 
 export async function runAuditScan(auditId: string): Promise<void> {
   // Update status to scanning. Any stale errorMessage from a previous run
@@ -117,37 +118,7 @@ export async function runAuditScan(auditId: string): Promise<void> {
     // Step 5.5: Detect Service Charges (directly from raw page text)
     const audit = await storage.getAudit(auditId);
     const companies = await storage.listCompanies();
-    const matchedCompany = companies.find((c) => {
-      // Match by MID first (most reliable)
-      if (audit?.mid && c.mid) {
-        const auditMid = audit.mid.replace(/\D/g, "");
-        const companyMid = c.mid.replace(/\D/g, "");
-        if (companyMid.length > 0 && (auditMid === companyMid || auditMid.endsWith(companyMid) || companyMid.endsWith(auditMid))) {
-          return true;
-        }
-      }
-      // Fallback: bidirectional substring match against the company's name,
-      // registered DBA, listed aliases, and the DBA extracted from the
-      // statement itself. We normalize separators so SHORE_DISTRIBUTORS,
-      // "Shore-Distributors", and "Shore Distributors" all match.
-      const normalize = (s: string) =>
-        s.toLowerCase().replace(/[_\-\.,]+/g, " ").replace(/\s+/g, " ").trim();
-      const candidates = [
-        audit?.clientName,
-        audit?.dba,
-      ]
-        .filter((v): v is string => !!v && v.length > 0)
-        .map(normalize);
-      if (candidates.length === 0) return false;
-
-      const companyHaystacks = [c.name, c.dba, ...(c.aliases ?? [])]
-        .filter((v): v is string => !!v && v.length > 0)
-        .map(normalize);
-
-      return candidates.some((cand) =>
-        companyHaystacks.some((hay) => hay.includes(cand) || cand.includes(hay)),
-      );
-    });
+    const matchedCompany = matchAuditToCompany(audit, companies);
     console.log(`[Audit ${auditId}] Company match: ${matchedCompany?.name || "none"}`);
 
     // Promote the audit's MID to the matched company's full MID when the
