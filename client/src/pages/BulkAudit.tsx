@@ -208,6 +208,40 @@ export default function BulkAudit() {
         // Wait for scan to finish
         const finalStatus = await waitForAudit(auditId);
 
+        // Pull the audit + findings so we can show a one-line summary
+        // inline (matches what /api/reports/:auditId computes for the
+        // detail page: non-PCI count + downgrade count + recovery $).
+        let summary: BulkFileEntry["findings"];
+        let merchant: string | undefined;
+        let processorDetected: string | undefined;
+        try {
+          const detailRes = await fetch(`/api/audits/${auditId}`, { credentials: "include" });
+          if (detailRes.ok) {
+            const detail = await detailRes.json();
+            const findings: Array<{ type: string; status: string; needsReview?: boolean; amount: number; spread?: number; rate: number }> =
+              detail.findings || [];
+            const nonPci = findings.filter((f) => f.type === "non_pci" && f.status !== "false_positive");
+            const downgrades = findings.filter(
+              (f) => f.type === "downgrade" && f.status !== "false_positive" && !f.needsReview,
+            );
+            const serviceCharges = findings.filter((f) => f.type === "service_charge" && f.status !== "false_positive");
+            const totalNonPci = nonPci.reduce((s, f) => s + (f.amount || 0), 0);
+            const totalDowngrade = downgrades.reduce((s, f) => s + (f.spread || 0), 0);
+            const totalServiceCharge = serviceCharges
+              .filter((f) => f.spread != null && f.spread > 0)
+              .reduce((s, f) => s + (f.rate > 0 ? f.amount * (f.spread || 0) / f.rate : 0), 0);
+            summary = {
+              nonPci: nonPci.length,
+              downgrades: downgrades.length,
+              recovery: totalNonPci + totalDowngrade + totalServiceCharge,
+            };
+            merchant = detail.dba || detail.clientName;
+            processorDetected = detail.processorDetected;
+          }
+        } catch {
+          // Summary is best-effort — don't fail the whole entry if it can't load.
+        }
+
         setEntries((prev) =>
           prev.map((e) =>
             e.id === entry.id
@@ -215,6 +249,9 @@ export default function BulkAudit() {
                   ...e,
                   status: finalStatus === "complete" ? "complete" as BulkFileStatus : "needs_review" as BulkFileStatus,
                   progress: 100,
+                  findings: summary,
+                  merchant: merchant || e.merchant,
+                  processorDetected: processorDetected || e.processorDetected,
                 }
               : e,
           ),
@@ -412,6 +449,34 @@ export default function BulkAudit() {
 
                     {entry.error && (
                       <p className="text-xs text-red-500 mt-1">{entry.error}</p>
+                    )}
+
+                    {(entry.status === "complete" || entry.status === "needs_review") && entry.findings && (
+                      <div className="flex items-center gap-4 text-xs mt-1.5">
+                        <span className="flex items-center gap-1">
+                          <span className="text-muted-foreground">Non-PCI:</span>
+                          <span className={`font-mono font-semibold ${entry.findings.nonPci > 0 ? "text-orange-600" : "text-foreground"}`}>
+                            {entry.findings.nonPci}
+                          </span>
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <span className="text-muted-foreground">Downgrades:</span>
+                          <span className={`font-mono font-semibold ${entry.findings.downgrades > 0 ? "text-amber-600" : "text-foreground"}`}>
+                            {entry.findings.downgrades}
+                          </span>
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <span className="text-muted-foreground">Recovery:</span>
+                          <span className={`font-mono font-semibold ${entry.findings.recovery > 0 ? "text-green-600" : "text-foreground"}`}>
+                            {entry.findings.recovery.toLocaleString("en-US", {
+                              style: "currency",
+                              currency: "USD",
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </span>
+                        </span>
+                      </div>
                     )}
                   </div>
 
