@@ -150,6 +150,26 @@ export async function runAuditScan(auditId: string): Promise<void> {
     });
     console.log(`[Audit ${auditId}] Company match: ${matchedCompany?.name || "none"}`);
 
+    // Promote the audit's MID to the matched company's full MID when the
+    // parsed value is a strict suffix. Amanda's audit-report PDFs only
+    // print the trailing 4–5 digits ("Productivity Inc - L2 -0888"),
+    // while raw merchant statements carry the full 12-digit number
+    // ("737191030888"). The Companies table is the system of record, so
+    // when its MID is longer and ends in the same suffix we just parsed,
+    // write the full one back onto the audit so every downstream surface
+    // (history list, report PDF, exports) shows the canonical MID.
+    if (matchedCompany?.mid && audit?.mid) {
+      const auditDigits = audit.mid.replace(/\D/g, "");
+      const companyDigits = matchedCompany.mid.replace(/\D/g, "");
+      if (
+        companyDigits.length > auditDigits.length &&
+        companyDigits.endsWith(auditDigits) &&
+        auditDigits.length >= 3
+      ) {
+        await storage.updateAudit(auditId, { mid: matchedCompany.mid });
+      }
+    }
+
     const serviceChargeResults = detectServiceChargesFromText(pages, matchedCompany);
 
     // Step 6: Detect Downgrades (ONLY in interchange section)
