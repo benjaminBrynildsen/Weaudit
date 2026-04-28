@@ -21,6 +21,8 @@ import {
   Building2,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
   Expand,
   FileScan,
@@ -152,6 +154,10 @@ export default function Dashboard() {
   const [numPages, setNumPages] = useState<number>(1);
   const [selectedDowngrade, setSelectedDowngrade] = useState<DowngradeRow | null>(null);
   const pdfContainerRef = useRef<HTMLDivElement>(null);
+  // Tracked separately from the page-render width because the viewer
+  // sizes the page by HEIGHT to fill the screen for an auditor's
+  // workspace; the container ref's offsetHeight feeds into <Page height>.
+  const [pdfViewportHeight, setPdfViewportHeight] = useState<number>(0);
   const [showCelebration, setShowCelebration] = useState<boolean>(false);
   const celebratedAuditRef = useRef<string | null>(null);
 
@@ -307,6 +313,39 @@ export default function Dashboard() {
     setSelectedPage(ref.page);
     if (id) setSelectedEvidenceId(id);
   }
+
+  // Track the PDF viewport height so the page renders sized-to-fit. The
+  // workspace fills the screen vertically; the inner page should fill
+  // its container so an auditor doesn't have to zoom or scroll.
+  useEffect(() => {
+    const el = pdfContainerRef.current;
+    if (!el) return;
+    const update = () => setPdfViewportHeight(el.clientHeight);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [pdfBlobUrl]);
+
+  // Keyboard nav: ←/→ flip pages while the viewer is mounted. Skip if
+  // focus is in a text input so we don't hijack typing.
+  useEffect(() => {
+    if (!pdfBlobUrl) return;
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) return;
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        setSelectedPage((p) => Math.max(1, p - 1));
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        setSelectedPage((p) => Math.min(numPages, p + 1));
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pdfBlobUrl, numPages]);
 
   function resetScan() {
     setPhase("idle");
@@ -1100,16 +1139,20 @@ export default function Dashboard() {
           </div>
         </Card>
 
-        {/* PDF Viewer */}
-        <Card className="overflow-hidden shadow-sm">
-          <div className="p-4 sm:p-5 border-b border-border bg-secondary/10">
+        {/* PDF Viewer — auditor workspace. Fills the screen vertically so
+            the page is large enough to read without zooming, and surfaces
+            page navigation as side-cushion arrow buttons (←/→ keyboard
+            shortcuts also work). Footer + header stay compact so the
+            actual document gets the most pixels. */}
+        <Card className="overflow-hidden shadow-sm flex flex-col h-[calc(100vh-7rem)] min-h-[640px]">
+          <div className="px-4 sm:px-5 py-3 border-b border-border bg-secondary/10 shrink-0">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
               <div className="min-w-0">
                 <p data-testid="text-pdf-title" className="font-semibold">
-                  PDF Viewer
+                  Statement Workspace
                 </p>
-                <p data-testid="text-pdf-subtitle" className="text-xs text-muted-foreground mt-1">
-                  Outlines show detected evidence. Click a row to jump.
+                <p data-testid="text-pdf-subtitle" className="text-xs text-muted-foreground mt-0.5">
+                  Outlines show detected evidence. Click a row to jump. Use ← / → to flip pages.
                 </p>
               </div>
 
@@ -1117,20 +1160,14 @@ export default function Dashboard() {
                 <Badge data-testid="badge-page" variant="outline" className="font-mono text-xs">
                   Page {selectedPage} / {numPages}
                 </Badge>
-                <Button data-testid="button-prev-page" size="sm" variant="outline" onClick={() => setSelectedPage((p) => Math.max(1, p - 1))} disabled={selectedPage <= 1}>
-                  Prev
-                </Button>
-                <Button data-testid="button-next-page" size="sm" variant="outline" onClick={() => setSelectedPage((p) => Math.min(numPages, p + 1))} disabled={selectedPage >= numPages}>
-                  Next
-                </Button>
               </div>
             </div>
           </div>
 
-          <div className="relative aspect-[3/4] bg-gradient-to-b from-background to-secondary/20">
-            <div className="absolute inset-0 p-2 sm:p-6">
-              <div className="h-full rounded-xl border border-border bg-card shadow-sm overflow-hidden relative">
-                <div className="absolute inset-x-0 top-0 h-10 border-b border-border bg-secondary/20 flex items-center justify-between px-3">
+          <div className="relative flex-1 min-h-0 bg-gradient-to-b from-background to-secondary/20">
+            <div className="absolute inset-0 p-2 sm:p-4">
+              <div className="h-full rounded-xl border border-border bg-card shadow-sm overflow-hidden relative flex flex-col">
+                <div className="h-10 border-b border-border bg-secondary/20 flex items-center justify-between px-3 shrink-0">
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <FileText className="w-4 h-4" />
                     <span data-testid="text-pdf-filename">Statement_2024-01.pdf</span>
@@ -1153,7 +1190,7 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                <div className="absolute inset-0 pt-10 overflow-auto" ref={pdfContainerRef}>
+                <div className="flex-1 min-h-0 overflow-auto relative" ref={pdfContainerRef}>
                   {pdfBlobUrl ? (
                     <Document
                       file={pdfBlobUrl}
@@ -1163,11 +1200,16 @@ export default function Dashboard() {
                           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
                         </div>
                       }
-                      className="flex justify-center py-4"
+                      className="flex justify-center py-4 px-16"
                     >
                       <Page
                         pageNumber={selectedPage}
-                        width={pdfContainerRef.current?.clientWidth ? pdfContainerRef.current.clientWidth - 48 : 600}
+                        // Size by HEIGHT so the page fills the workspace
+                        // vertically. We subtract a little for top/bottom
+                        // padding. Falls back to a width-based default
+                        // until the container has measured.
+                        height={pdfViewportHeight > 32 ? pdfViewportHeight - 32 : undefined}
+                        width={pdfViewportHeight > 32 ? undefined : 600}
                         renderTextLayer={true}
                         renderAnnotationLayer={true}
                       />
@@ -1202,6 +1244,35 @@ export default function Dashboard() {
                         </div>
                       )}
                     </div>
+                  )}
+
+                  {/* Side-cushion page-flip arrows. Positioned over the
+                      padding around the page so they don't overlap text.
+                      Hidden when there's no PDF, only one page, or at the
+                      ends of the document. */}
+                  {pdfBlobUrl && numPages > 1 && (
+                    <>
+                      <button
+                        data-testid="button-prev-page"
+                        type="button"
+                        aria-label="Previous page"
+                        onClick={() => setSelectedPage((p) => Math.max(1, p - 1))}
+                        disabled={selectedPage <= 1}
+                        className="absolute left-2 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center h-12 w-12 rounded-full border border-border bg-background/85 backdrop-blur shadow-md text-foreground/80 hover:text-foreground hover:bg-background hover:shadow-lg transition disabled:opacity-30 disabled:pointer-events-none"
+                      >
+                        <ChevronLeft className="w-6 h-6" />
+                      </button>
+                      <button
+                        data-testid="button-next-page"
+                        type="button"
+                        aria-label="Next page"
+                        onClick={() => setSelectedPage((p) => Math.min(numPages, p + 1))}
+                        disabled={selectedPage >= numPages}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center h-12 w-12 rounded-full border border-border bg-background/85 backdrop-blur shadow-md text-foreground/80 hover:text-foreground hover:bg-background hover:shadow-lg transition disabled:opacity-30 disabled:pointer-events-none"
+                      >
+                        <ChevronRight className="w-6 h-6" />
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
