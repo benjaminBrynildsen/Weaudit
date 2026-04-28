@@ -40,7 +40,7 @@ type BulkFileEntry = {
   auditId?: string;
   merchant?: string;
   processorDetected?: string;
-  findings?: { nonPci: number; downgrades: number; recovery: number };
+  findings?: { nonPci: number; downgrades: number; revenueLost: number };
   error?: string;
 };
 
@@ -210,7 +210,7 @@ export default function BulkAudit() {
 
         // Pull the audit + findings so we can show a one-line summary
         // inline (matches what /api/reports/:auditId computes for the
-        // detail page: non-PCI count + downgrade count + recovery $).
+        // detail page: non-PCI count + downgrade count + revenue lost $).
         let summary: BulkFileEntry["findings"];
         let merchant: string | undefined;
         let processorDetected: string | undefined;
@@ -233,7 +233,7 @@ export default function BulkAudit() {
             summary = {
               nonPci: nonPci.length,
               downgrades: downgrades.length,
-              recovery: totalNonPci + totalDowngrade + totalServiceCharge,
+              revenueLost: totalNonPci + totalDowngrade + totalServiceCharge,
             };
             merchant = detail.dba || detail.clientName;
             processorDetected = detail.processorDetected;
@@ -466,9 +466,9 @@ export default function BulkAudit() {
                           </span>
                         </span>
                         <span className="flex items-center gap-1">
-                          <span className="text-muted-foreground">Recovery:</span>
-                          <span className={`font-mono font-semibold ${entry.findings.recovery > 0 ? "text-green-600" : "text-foreground"}`}>
-                            {entry.findings.recovery.toLocaleString("en-US", {
+                          <span className="text-muted-foreground">Revenue Lost:</span>
+                          <span className={`font-mono font-semibold ${entry.findings.revenueLost > 0 ? "text-green-600" : "text-foreground"}`}>
+                            {entry.findings.revenueLost.toLocaleString("en-US", {
                               style: "currency",
                               currency: "USD",
                               minimumFractionDigits: 2,
