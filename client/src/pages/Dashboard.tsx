@@ -128,10 +128,91 @@ function fmtPct(n?: number) {
   return `${Math.round(n * 100)}%`;
 }
 
+/** Wrapper used by the sidebar's detail view. Same width as the list
+ *  so the layout doesn't reflow when toggling, plus a close (X) button
+ *  in the header to return to the list. */
+function SidebarDetail({
+  title,
+  subtitle,
+  accent,
+  onClose,
+  onJump,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  accent: "red" | "yellow";
+  onClose: () => void;
+  onJump: () => void;
+  children: React.ReactNode;
+}) {
+  const accentClass =
+    accent === "red"
+      ? "bg-red-500/10 text-red-700 border-red-500/20"
+      : "bg-yellow-400/15 text-yellow-700 border-yellow-500/20";
+  return (
+    <aside className="w-72 shrink-0 border-r border-border bg-secondary/15 flex flex-col overscroll-contain">
+      <div className="flex items-start justify-between gap-2 p-4 border-b border-border bg-background/40 backdrop-blur sticky top-0 z-10">
+        <div className="min-w-0">
+          <p className={`inline-block text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 border ${accentClass}`}>
+            {title}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
+        </div>
+        <button
+          type="button"
+          aria-label="Back to list"
+          onClick={onClose}
+          className="shrink-0 h-7 w-7 rounded-md border border-border bg-background hover:bg-secondary/40 flex items-center justify-center text-muted-foreground hover:text-foreground transition"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto overscroll-contain p-4 space-y-3">
+        {children}
+      </div>
+
+      <div className="p-3 border-t border-border bg-background/40">
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full"
+          onClick={onJump}
+        >
+          <FileText className="w-3.5 h-3.5 mr-1.5" />
+          Jump to evidence
+        </Button>
+      </div>
+    </aside>
+  );
+}
+
+function DetailField({
+  label,
+  children,
+  mono = false,
+  valueClassName,
+}: {
+  label: string;
+  children: React.ReactNode;
+  mono?: boolean;
+  valueClassName?: string;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-secondary/10 p-3">
+      <p className="text-[11px] text-muted-foreground font-medium">{label}</p>
+      <p className={`text-sm mt-1 break-words ${mono ? "font-mono" : ""} ${valueClassName ?? ""}`}>
+        {children}
+      </p>
+    </div>
+  );
+}
+
 /**
  * Left-rail findings list shown in the workspace's full-screen mode.
- * Same data the inline finding cards use; clicking a row jumps the
- * viewer to that page.
+ * Same data the inline finding cards use; clicking a row opens a
+ * detail panel inside the same sidebar (the PDF stays put).
  */
 function FindingsSidebar({
   merchant,
@@ -141,8 +222,12 @@ function FindingsSidebar({
   downgrades,
   downgradeRevenueLost,
   selectedEvidenceId,
+  selectedNonPci,
+  selectedDowngrade,
   onSelectNonPci,
   onSelectDowngrade,
+  onClearSelection,
+  onJumpToEvidence,
 }: {
   merchant?: string;
   statementMonth?: string;
@@ -151,12 +236,85 @@ function FindingsSidebar({
   downgrades: DowngradeRow[];
   downgradeRevenueLost: number;
   selectedEvidenceId: string | null;
-  // Sidebar clicks pop up details instead of moving the PDF; the
-  // detail dialogs themselves have a "Jump to evidence" button for
-  // when the auditor actually wants to navigate.
+  // When either of these is set, the sidebar swaps from list view to
+  // detail view for that finding. The PDF is unaffected.
+  selectedNonPci: NonPciRow | null;
+  selectedDowngrade: DowngradeRow | null;
+  // Sidebar clicks open the detail panel above instead of moving the
+  // PDF; the detail panel has a "Jump to evidence" button for when the
+  // auditor *does* want to navigate.
   onSelectNonPci: (row: NonPciRow) => void;
   onSelectDowngrade: (row: DowngradeRow) => void;
+  onClearSelection: () => void;
+  onJumpToEvidence: (ref: EvidenceRef, id?: string) => void;
 }) {
+  // ── Detail view: shown when a finding is selected. Replaces the
+  // list so the auditor focuses on one finding at a time.
+  if (selectedNonPci) {
+    return (
+      <SidebarDetail
+        title="Non-PCI Fee"
+        subtitle={`Page ${selectedNonPci.ref.page}`}
+        accent="red"
+        onClose={onClearSelection}
+        onJump={() => onJumpToEvidence(selectedNonPci.ref, selectedNonPci.id)}
+      >
+        <DetailField label="Raw line" mono>{selectedNonPci.raw}</DetailField>
+        <DetailField label="Fee charged" mono valueClassName="text-red-600">
+          {selectedNonPci.amount}
+        </DetailField>
+        {selectedNonPci.status && <DetailField label="Status">{selectedNonPci.status}</DetailField>}
+        <div className="rounded-lg border border-border bg-red-500/5 p-3">
+          <p className="text-[11px] text-muted-foreground font-medium">Recommended action</p>
+          <p className="text-xs mt-1">
+            Complete the PCI SAQ + attestation, then request a refund for fees charged in recent months.
+          </p>
+        </div>
+      </SidebarDetail>
+    );
+  }
+
+  if (selectedDowngrade) {
+    return (
+      <SidebarDetail
+        title="Downgrade"
+        subtitle={`Page ${selectedDowngrade.ref.page}`}
+        accent="yellow"
+        onClose={onClearSelection}
+        onJump={() => onJumpToEvidence(selectedDowngrade.ref, selectedDowngrade.id)}
+      >
+        <DetailField label="Raw line" mono>{selectedDowngrade.raw}</DetailField>
+        <div className="grid grid-cols-2 gap-2">
+          <DetailField label="Volume" mono>{selectedDowngrade.volume}</DetailField>
+          <DetailField label="Revenue lost (est.)" mono valueClassName="text-red-600">
+            {selectedDowngrade.revenueLost ?? "—"}
+          </DetailField>
+          {selectedDowngrade.downgradeRate && (
+            <DetailField label="Downgrade rate" mono>{selectedDowngrade.downgradeRate}</DetailField>
+          )}
+          {selectedDowngrade.ifCorrected && (
+            <DetailField label="If corrected" mono valueClassName="text-emerald-600">
+              {selectedDowngrade.ifCorrected}
+            </DetailField>
+          )}
+          <DetailField label="# Transactions" mono>{selectedDowngrade.ofTrans}</DetailField>
+        </div>
+        {selectedDowngrade.flagged && selectedDowngrade.flagReason && (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-700 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-xs font-semibold text-red-800">High Priority</p>
+                <p className="text-xs text-red-800/80 mt-0.5">{selectedDowngrade.flagReason}</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </SidebarDetail>
+    );
+  }
+
+  // ── List view: default state.
   const totalCount = nonPci.length + downgrades.length;
   return (
     <aside className="w-72 shrink-0 border-r border-border bg-secondary/15 overflow-y-auto overscroll-contain">
@@ -1310,8 +1468,19 @@ export default function Dashboard() {
               downgrades={downgrades}
               downgradeRevenueLost={downgradeRollup.revenueLost}
               selectedEvidenceId={selectedEvidenceId}
+              selectedNonPci={selectedNonPci}
+              selectedDowngrade={selectedDowngrade}
               onSelectNonPci={setSelectedNonPci}
               onSelectDowngrade={setSelectedDowngrade}
+              onClearSelection={() => {
+                setSelectedNonPci(null);
+                setSelectedDowngrade(null);
+              }}
+              onJumpToEvidence={(ref, id) => {
+                jumpToEvidence(ref, id);
+                setSelectedNonPci(null);
+                setSelectedDowngrade(null);
+              }}
             />
           )}
           <Card
@@ -2016,8 +2185,10 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Downgrade Detail Modal */}
-      <Dialog open={!!selectedDowngrade} onOpenChange={(open) => !open && setSelectedDowngrade(null)}>
+      {/* Downgrade Detail Modal — only used outside the workspace's
+          full-screen mode. In full-screen the sidebar renders the
+          detail in-place (see FindingsSidebar). */}
+      <Dialog open={!!selectedDowngrade && !isFullScreen} onOpenChange={(open) => !open && setSelectedDowngrade(null)}>
         <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-md">
           <DialogHeader>
             <div className="flex items-center gap-2">
@@ -2106,10 +2277,10 @@ export default function Dashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* Non-PCI Detail Modal — companion to the Downgrade modal above.
-          Opens from the full-screen sidebar so the auditor can review
-          the row without scrolling the PDF away from where they are. */}
-      <Dialog open={!!selectedNonPci} onOpenChange={(open) => !open && setSelectedNonPci(null)}>
+      {/* Non-PCI Detail Modal — only used outside the workspace's
+          full-screen mode. In full-screen the sidebar renders the
+          detail in-place (see FindingsSidebar). */}
+      <Dialog open={!!selectedNonPci && !isFullScreen} onOpenChange={(open) => !open && setSelectedNonPci(null)}>
         <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-md">
           <DialogHeader>
             <div className="flex items-center gap-2">
