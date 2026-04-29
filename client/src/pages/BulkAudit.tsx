@@ -364,7 +364,30 @@ export default function BulkAudit() {
   };
 
   const clearCompleted = () => {
-    setEntries((prev) => prev.filter((e) => e.status !== "complete" && e.status !== "error"));
+    // Anything in a terminal state from the auditor's perspective:
+    // complete, errored, or needs-review (the auditor either reviewed
+    // it or chose to skip). Leaves queued / uploading / scanning rows
+    // alone so an in-flight run isn't disrupted.
+    setEntries((prev) =>
+      prev.filter(
+        (e) => e.status !== "complete" && e.status !== "error" && e.status !== "needs_review",
+      ),
+    );
+  };
+
+  const startNewBatch = () => {
+    if (entries.some((e) => e.status === "uploading" || e.status === "scanning")) {
+      if (!window.confirm("A run is still in progress — clear it anyway?")) return;
+    }
+    setEntries([]);
+    // Wipe the per-batch tracking too so the next batch isn't haunted
+    // by reviewed pills from the previous run.
+    try {
+      window.localStorage.setItem(REVIEWED_AUDITS_KEY, "[]");
+      setReviewedAudits(new Set());
+    } catch {
+      // ignore
+    }
   };
 
   // Poll audit status until it finishes. Throws on "failed" so the caller's
@@ -643,6 +666,11 @@ export default function BulkAudit() {
                 {completedFiles > 0 && !isRunning && (
                   <Button variant="ghost" size="sm" onClick={clearCompleted}>
                     Clear completed
+                  </Button>
+                )}
+                {entries.length > 0 && !isRunning && (
+                  <Button variant="ghost" size="sm" onClick={startNewBatch}>
+                    Start new batch
                   </Button>
                 )}
                 {isRunning && (
