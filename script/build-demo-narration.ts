@@ -141,18 +141,82 @@ function probeDuration(file: string): number {
   return parseFloat(out);
 }
 
+/**
+ * Per-narration-chunk zoom plan. Indexed to NARRATION array. Each
+ * entry is the framing while that chunk is being narrated:
+ *   - zoom: 1.0 = full frame, 1.4 ≈ "really up close"
+ *   - cx, cy: center of the zoom in original-frame coords (0..1)
+ * The video is 1920x1080. The chunk's narration audio defines the
+ * time boundary; we add the 1.5s adelay so zooms line up.
+ */
+type ZoomKey = { zoom: number; cx: number; cy: number };
+const ZOOM_PLAN: ZoomKey[] = [
+  { zoom: 1.0, cx: 0.5, cy: 0.5 },   // 0: "Welcome to Weaudit." — overview
+  { zoom: 1.12, cx: 0.5, cy: 0.5 },  // 1: bulk audit page — slight push-in
+  { zoom: 1.40, cx: 0.78, cy: 0.55 },// 2: "Click Review" — bulk card right side
+  { zoom: 1.35, cx: 0.18, cy: 0.55 },// 3: "Click any finding" — sidebar / left
+  { zoom: 1.50, cx: 0.88, cy: 0.12 },// 4: "Mark Reviewed" — top-right toolbar
+  { zoom: 1.05, cx: 0.5, cy: 0.5 },  // 5: outro — slowly pull back
+];
+// Tail framing for the silent stretch after the last narration chunk
+// (the source video is 1:17, narration ends ~1:08-ish).
+const TAIL_FRAME: ZoomKey = { zoom: 1.0, cx: 0.5, cy: 0.5 };
+
+const VIDEO_W = 1920;
+const VIDEO_H = 1080;
+const ADELAY_S = 1.5; // narration starts 1.5s into the video
+
+function buildZoomFilter(chunkSegPaths: string[], videoDuration: number): string {
+  // Boundary times (video-relative) where the zoom switches.
+  const cuts: { t: number; key: ZoomKey }[] = [{ t: 0, key: { zoom: 1.0, cx: 0.5, cy: 0.5 } }];
+  let acc = ADELAY_S;
+  for (let i = 0; i < chunkSegPaths.length; i++) {
+    cuts.push({ t: acc, key: ZOOM_PLAN[i] ?? TAIL_FRAME });
+    acc += probeDuration(chunkSegPaths[i]);
+  }
+  cuts.push({ t: acc, key: TAIL_FRAME });
+
+  // Build piecewise step expressions for crop_w / crop_h / crop_x / crop_y.
+  // Hard cuts; smoothing left for a future pass to keep the filter
+  // graph readable.
+  const ifChain = (pickAt: (k: ZoomKey) => number, fallback: number): string => {
+    let expr = `${fallback}`;
+    for (let i = 0; i < cuts.length - 1; i++) {
+      const a = cuts[i].t.toFixed(3);
+      const b = cuts[i + 1].t.toFixed(3);
+      const v = pickAt(cuts[i].key).toFixed(4);
+      expr = `if(between(t,${a},${b}),${v},${expr})`;
+    }
+    return expr;
+  };
+
+  const cwExpr = ifChain((k) => VIDEO_W / k.zoom, VIDEO_W);
+  const chExpr = ifChain((k) => VIDEO_H / k.zoom, VIDEO_H);
+  // Center the crop on (cx, cy), then clamp so the window stays inside the frame.
+  const cxExpr = ifChain((k) => {
+    const cw = VIDEO_W / k.zoom;
+    return Math.max(0, Math.min(VIDEO_W - cw, k.cx * VIDEO_W - cw / 2));
+  }, 0);
+  const cyExpr = ifChain((k) => {
+    const ch = VIDEO_H / k.zoom;
+    return Math.max(0, Math.min(VIDEO_H - ch, k.cy * VIDEO_H - ch / 2));
+  }, 0);
+
+  // crop produces a smaller frame; scale puts it back to 1920x1080.
+  return `crop=w='${cwExpr}':h='${chExpr}':x='${cxExpr}':y='${cyExpr}',scale=${VIDEO_W}:${VIDEO_H}:flags=lanczos,setsar=1`;
+}
+
 function mux(narrationPath: string, musicPath: string | null) {
   const videoDuration = probeDuration(SOURCE_MP4);
   console.log(`[mux] video duration: ${videoDuration.toFixed(2)}s`);
 
   const stagingOut = path.join(TMP_DIR, "out.mp4");
 
-  // Build the filter graph. Narration plays at full volume; music
-  // sidechains to 0.18× under it (gentle bed). If no music supplied,
-  // narration is the only audio track.
-  // Narration is shorter than the video; pad it (apad) to the video's
-  // exact duration so the encoder doesn't cut the video short. Music,
-  // when present, gets clipped to that same duration.
+  // Build the per-narration-chunk zoom filter so the video pushes in
+  // on the click moments instead of staying flat.
+  const segPaths = NARRATION.map((_, i) => path.join(TMP_DIR, `seg-${i}.wav`));
+  const zoomFilter = buildZoomFilter(segPaths, videoDuration);
+
   const dur = videoDuration.toFixed(3);
   if (musicPath) {
     execFileSync("ffmpeg", [
@@ -162,11 +226,12 @@ function mux(narrationPath: string, musicPath: string | null) {
       "-stream_loop", "-1",
       "-i", musicPath,
       "-filter_complex",
+      `[0:v]${zoomFilter}[v];` +
       `[1:a]adelay=1500|1500,volume=1.0,apad,atrim=0:${dur}[narr];` +
       `[2:a]volume=0.18,atrim=0:${dur},afade=t=in:st=0:d=1.5,afade=t=out:st=${(videoDuration - 2).toFixed(3)}:d=2[bed];` +
       `[narr][bed]amix=inputs=2:duration=longest:dropout_transition=0[a]`,
-      "-map", "0:v", "-map", "[a]",
-      "-c:v", "copy",
+      "-map", "[v]", "-map", "[a]",
+      "-c:v", "libx264", "-preset", "medium", "-crf", "22", "-pix_fmt", "yuv420p",
       "-c:a", "aac", "-b:a", "192k",
       "-t", dur,
       "-movflags", "+faststart",
@@ -177,9 +242,11 @@ function mux(narrationPath: string, musicPath: string | null) {
       "-hide_banner", "-y",
       "-i", SOURCE_MP4,
       "-i", narrationPath,
-      "-filter_complex", `[1:a]adelay=1500|1500,volume=1.0,apad,atrim=0:${dur}[a]`,
-      "-map", "0:v", "-map", "[a]",
-      "-c:v", "copy",
+      "-filter_complex",
+      `[0:v]${zoomFilter}[v];` +
+      `[1:a]adelay=1500|1500,volume=1.0,apad,atrim=0:${dur}[a]`,
+      "-map", "[v]", "-map", "[a]",
+      "-c:v", "libx264", "-preset", "medium", "-crf", "22", "-pix_fmt", "yuv420p",
       "-c:a", "aac", "-b:a", "192k",
       "-t", dur,
       "-movflags", "+faststart",
