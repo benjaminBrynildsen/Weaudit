@@ -995,13 +995,25 @@ export default function Dashboard() {
           "weaudit:reviewed-audits",
           JSON.stringify(Array.from(set)),
         );
+        // Hand the bulk page a hint so it can flash a toast on mount
+        // ("X marked reviewed") — sessionStorage is per-tab so it
+        // can't leak between auditors / windows.
+        const merchantName = auditData?.dba || auditData?.clientName || "Audit";
+        window.sessionStorage.setItem(
+          "weaudit:just-reviewed",
+          JSON.stringify({
+            merchant: merchantName,
+            auditId: currentAuditId,
+            ts: Date.now(),
+          }),
+        );
       } catch {
         // ignore — UX still works without persistence
       }
     }
     setIsFullScreen(false);
     window.location.href = "/bulk-audit";
-  }, [currentAuditId]);
+  }, [currentAuditId, auditData]);
 
   // Once an externally-loaded audit's data arrives, fetch the source
   // statement PDF so the viewer has something to render. Mirrors the

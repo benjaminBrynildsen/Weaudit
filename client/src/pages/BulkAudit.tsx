@@ -273,9 +273,30 @@ export default function BulkAudit() {
       window.removeEventListener("storage", refresh);
     };
   }, []);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+
+  // Workspace → bulk-page handoff: when Mark reviewed sends the
+  // auditor back, it stashes a hint in sessionStorage. Show a toast
+  // confirming the action (only if the hint is fresh, < 30s, so we
+  // don't flash a stale toast on a tab restore).
+  useEffect(() => {
+    try {
+      const raw = window.sessionStorage.getItem("weaudit:just-reviewed");
+      if (!raw) return;
+      window.sessionStorage.removeItem("weaudit:just-reviewed");
+      const data = JSON.parse(raw) as { merchant?: string; auditId?: string; ts?: number };
+      if (data.ts && Date.now() - data.ts > 30000) return;
+      toast({
+        title: "Audit marked reviewed",
+        description: data.merchant || "Returned to the bulk queue.",
+      });
+    } catch {
+      // ignore — toast is informational only
+    }
+  }, [toast]);
 
   const [isRunning, setIsRunning] = useState(false);
   // Gateway Level applies to every file in the batch. Without it the runner
