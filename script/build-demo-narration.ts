@@ -150,13 +150,19 @@ function probeDuration(file: string): number {
  * time boundary; we add the 1.5s adelay so zooms line up.
  */
 type ZoomKey = { zoom: number; cx: number; cy: number };
+// Coordinates re-tuned after probing actual frames at each chunk's
+// timestamp. The recording shows: bulk-audit page (rows + Review
+// buttons in bottom half) → statement workspace with the PDF. It
+// does NOT show the full-screen workspace + findings sidebar +
+// Mark Reviewed button, so the chunk 3 / 4 zooms target the
+// closest equivalent on screen (PDF content / top toolbar).
 const ZOOM_PLAN: ZoomKey[] = [
   { zoom: 1.0, cx: 0.5, cy: 0.5 },   // 0: "Welcome to Weaudit." — overview
-  { zoom: 1.12, cx: 0.5, cy: 0.5 },  // 1: bulk audit page — slight push-in
-  { zoom: 1.40, cx: 0.78, cy: 0.55 },// 2: "Click Review" — bulk card right side
-  { zoom: 1.35, cx: 0.18, cy: 0.55 },// 3: "Click any finding" — sidebar / left
-  { zoom: 1.50, cx: 0.88, cy: 0.12 },// 4: "Mark Reviewed" — top-right toolbar
-  { zoom: 1.05, cx: 0.5, cy: 0.5 },  // 5: outro — slowly pull back
+  { zoom: 1.20, cx: 0.5, cy: 0.55 }, // 1: bulk audit page — slight push-in
+  { zoom: 5.0, cx: 0.85, cy: 0.62 }, // 2: "Click Review" — Review button on top row of Audit Queue
+  { zoom: 4.0, cx: 0.55, cy: 0.55 }, // 3: "Click any finding" — PDF content / where findings sidebar would be
+  { zoom: 5.0, cx: 0.50, cy: 0.10 }, // 4: "Mark Reviewed" — top toolbar area
+  { zoom: 1.0, cx: 0.5, cy: 0.5 },   // 5: outro — back to overview
 ];
 // Tail framing for the silent stretch after the last narration chunk
 // (the source video is 1:17, narration ends ~1:08-ish).
@@ -176,34 +182,39 @@ function buildZoomFilter(chunkSegPaths: string[], videoDuration: number): string
   }
   cuts.push({ t: acc, key: TAIL_FRAME });
 
-  // Build piecewise step expressions for crop_w / crop_h / crop_x / crop_y.
-  // Hard cuts; smoothing left for a future pass to keep the filter
-  // graph readable.
-  const ifChain = (pickAt: (k: ZoomKey) => number, fallback: number): string => {
-    let expr = `${fallback}`;
-    for (let i = 0; i < cuts.length - 1; i++) {
-      const a = cuts[i].t.toFixed(3);
-      const b = cuts[i + 1].t.toFixed(3);
-      const v = pickAt(cuts[i].key).toFixed(4);
-      expr = `if(between(t,${a},${b}),${v},${expr})`;
-    }
-    return expr;
-  };
+  // Each "segment" runs from cuts[i].t to cuts[i+1].t at cuts[i].key zoom.
+  // Plus a final tail segment from cuts[last].t to video end if it
+  // doesn't already cover that.
+  const segments: { tStart: number; tEnd: number; key: ZoomKey }[] = [];
+  for (let i = 0; i < cuts.length - 1; i++) {
+    segments.push({ tStart: cuts[i].t, tEnd: cuts[i + 1].t, key: cuts[i].key });
+  }
+  if (cuts[cuts.length - 1].t < videoDuration) {
+    segments.push({ tStart: cuts[cuts.length - 1].t, tEnd: videoDuration, key: TAIL_FRAME });
+  }
 
-  const cwExpr = ifChain((k) => VIDEO_W / k.zoom, VIDEO_W);
-  const chExpr = ifChain((k) => VIDEO_H / k.zoom, VIDEO_H);
-  // Center the crop on (cx, cy), then clamp so the window stays inside the frame.
-  const cxExpr = ifChain((k) => {
-    const cw = VIDEO_W / k.zoom;
-    return Math.max(0, Math.min(VIDEO_W - cw, k.cx * VIDEO_W - cw / 2));
-  }, 0);
-  const cyExpr = ifChain((k) => {
-    const ch = VIDEO_H / k.zoom;
-    return Math.max(0, Math.min(VIDEO_H - ch, k.cy * VIDEO_H - ch / 2));
-  }, 0);
+  // ffmpeg's crop filter (this version, 4.4.2) only evaluates w/h at
+  // init, so a single time-varying expression won't switch zoom
+  // levels mid-video. Split the input into per-segment branches,
+  // crop+scale each with constant dims, then concat them back into
+  // one stream. Hard cuts at boundaries — easing is a future pass.
+  const splitOutputs = segments.map((_, i) => `[s${i}]`).join("");
+  const splitClause = `[0:v]split=${segments.length}${splitOutputs}`;
 
-  // crop produces a smaller frame; scale puts it back to 1920x1080.
-  return `crop=w='${cwExpr}':h='${chExpr}':x='${cxExpr}':y='${cyExpr}',scale=${VIDEO_W}:${VIDEO_H}:flags=lanczos,setsar=1`;
+  const segClauses = segments.map((seg, i) => {
+    const cw = Math.round(VIDEO_W / seg.key.zoom);
+    const ch = Math.round(VIDEO_H / seg.key.zoom);
+    const cx = Math.max(0, Math.min(VIDEO_W - cw, Math.round(seg.key.cx * VIDEO_W - cw / 2)));
+    const cy = Math.max(0, Math.min(VIDEO_H - ch, Math.round(seg.key.cy * VIDEO_H - ch / 2)));
+    const tStart = seg.tStart.toFixed(3);
+    const tEnd = seg.tEnd.toFixed(3);
+    return `[s${i}]trim=${tStart}:${tEnd},setpts=PTS-STARTPTS,crop=${cw}:${ch}:${cx}:${cy},scale=${VIDEO_W}:${VIDEO_H}:flags=lanczos,setsar=1[v${i}]`;
+  });
+
+  const concatInputs = segments.map((_, i) => `[v${i}]`).join("");
+  const concatClause = `${concatInputs}concat=n=${segments.length}:v=1:a=0[zoomed]`;
+
+  return `${splitClause};${segClauses.join(";")};${concatClause}`;
 }
 
 function mux(narrationPath: string, musicPath: string | null) {
@@ -226,11 +237,11 @@ function mux(narrationPath: string, musicPath: string | null) {
       "-stream_loop", "-1",
       "-i", musicPath,
       "-filter_complex",
-      `[0:v]${zoomFilter}[v];` +
+      `${zoomFilter};` +
       `[1:a]adelay=1500|1500,volume=1.0,apad,atrim=0:${dur}[narr];` +
       `[2:a]volume=0.18,atrim=0:${dur},afade=t=in:st=0:d=1.5,afade=t=out:st=${(videoDuration - 2).toFixed(3)}:d=2[bed];` +
       `[narr][bed]amix=inputs=2:duration=longest:dropout_transition=0[a]`,
-      "-map", "[v]", "-map", "[a]",
+      "-map", "[zoomed]", "-map", "[a]",
       "-c:v", "libx264", "-preset", "medium", "-crf", "22", "-pix_fmt", "yuv420p",
       "-c:a", "aac", "-b:a", "192k",
       "-t", dur,
@@ -243,9 +254,9 @@ function mux(narrationPath: string, musicPath: string | null) {
       "-i", SOURCE_MP4,
       "-i", narrationPath,
       "-filter_complex",
-      `[0:v]${zoomFilter}[v];` +
+      `${zoomFilter};` +
       `[1:a]adelay=1500|1500,volume=1.0,apad,atrim=0:${dur}[a]`,
-      "-map", "[v]", "-map", "[a]",
+      "-map", "[zoomed]", "-map", "[a]",
       "-c:v", "libx264", "-preset", "medium", "-crf", "22", "-pix_fmt", "yuv420p",
       "-c:a", "aac", "-b:a", "192k",
       "-t", dur,
