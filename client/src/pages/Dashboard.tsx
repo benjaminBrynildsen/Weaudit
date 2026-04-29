@@ -641,23 +641,38 @@ function FindingsSidebar({
               <span className="text-yellow-700 font-semibold">
                 Downgrades · {downgrades.length}
               </span>
-              <div className="flex items-center gap-2">
-                {downgrades.length > 0 && (
-                  <span className="font-mono text-yellow-700/80 normal-case">
-                    ${downgradeRevenueLost.toFixed(2)}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={onStartAddCustom}
-                  className="h-5 w-5 rounded-md border border-border bg-background hover:bg-secondary/40 flex items-center justify-center text-muted-foreground hover:text-foreground transition"
-                  aria-label="Add custom downgrade"
-                  title="Add a downgrade the engine missed"
-                >
-                  <span className="text-sm leading-none">+</span>
-                </button>
-              </div>
+              {downgrades.length > 0 && (
+                <span className="font-mono text-yellow-700/80 normal-case">
+                  ${downgradeRevenueLost.toFixed(2)}
+                </span>
+              )}
             </div>
+
+            {/* Add-downgrade row — same dimensions as the finding rows
+                below so it sits in the list as a peer rather than a
+                tiny header chip. Dashed accent makes the call to
+                action obvious without adding extra chrome. */}
+            <button
+              type="button"
+              onClick={onStartAddCustom}
+              className="w-full text-left px-4 py-2 border-y border-dashed border-blue-500/30 hover:bg-blue-500/5 transition-colors group"
+              aria-label="Add custom downgrade"
+              title="Add a downgrade the engine missed"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-blue-700 group-hover:text-blue-800">
+                    Add downgrade
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    Record one the engine missed
+                  </p>
+                </div>
+                <span className="shrink-0 h-5 w-5 rounded-md border border-blue-500/30 bg-background flex items-center justify-center text-blue-700 group-hover:bg-blue-500/10">
+                  <span className="text-sm leading-none">+</span>
+                </span>
+              </div>
+            </button>
             {downgrades.length > 0 && (
               <>
               {downgrades.map((r) => (

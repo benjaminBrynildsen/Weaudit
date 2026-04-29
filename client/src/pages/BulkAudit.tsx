@@ -188,6 +188,8 @@ export default function BulkAudit() {
     if (queued.length === 0 || isRunning) return;
 
     setIsRunning(true);
+    // Note: no explicit user click — addFiles auto-fires this. The
+    // setIsRunning above gates re-entry from the auto-start effect.
 
     for (const entry of queued) {
       // Mark as uploading
@@ -286,6 +288,17 @@ export default function BulkAudit() {
       description: `Processed ${queued.length} file${queued.length !== 1 ? "s" : ""}.`,
     });
   }, [entries, isRunning, toast, waitForAudit, gatewayLevel]);
+
+  // Auto-start the run as soon as files land in the queue. Re-entry
+  // is gated by isRunning (set inside startBulkUpload), so additional
+  // files added while a run is in flight join the same loop instead of
+  // spawning a parallel one.
+  useEffect(() => {
+    if (isRunning) return;
+    if (entries.some((e) => e.status === "queued")) {
+      void startBulkUpload();
+    }
+  }, [entries, isRunning, startBulkUpload]);
 
   const totalFiles = entries.length;
   const completedFiles = entries.filter((e) => e.status === "complete" || e.status === "needs_review").length;
@@ -391,16 +404,16 @@ export default function BulkAudit() {
                 <Badge variant="outline">{entries.length} file{entries.length !== 1 ? "s" : ""}</Badge>
               </div>
               <div className="flex items-center gap-2">
-                {completedFiles > 0 && (
+                {completedFiles > 0 && !isRunning && (
                   <Button variant="ghost" size="sm" onClick={clearCompleted}>
                     Clear completed
                   </Button>
                 )}
-                {queuedFiles > 0 && (
-                  <Button size="sm" onClick={startBulkUpload} disabled={isRunning}>
-                    {isRunning ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <UploadCloud className="w-4 h-4 mr-2" />}
-                    {isRunning ? "Processing..." : `Start Audit (${queuedFiles} file${queuedFiles !== 1 ? "s" : ""})`}
-                  </Button>
+                {isRunning && (
+                  <Badge variant="outline" className="text-amber-700 bg-amber-500/10 border-amber-500/20">
+                    <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                    Processing {activeFiles + queuedFiles} file{activeFiles + queuedFiles !== 1 ? "s" : ""}…
+                  </Badge>
                 )}
               </div>
             </div>
