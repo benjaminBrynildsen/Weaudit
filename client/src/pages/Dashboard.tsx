@@ -1229,7 +1229,13 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                <div className="flex-1 min-h-0 overflow-auto relative" ref={pdfContainerRef}>
+                {/* `overscroll-contain` keeps wheel-scrolling inside the
+                    workspace from chaining out and scrolling the rest of
+                    the dashboard once the page hits its top/bottom. */}
+                <div
+                  className="flex-1 min-h-0 overflow-auto overscroll-contain"
+                  ref={pdfContainerRef}
+                >
                   {pdfBlobUrl ? (
                     <Document
                       file={pdfBlobUrl}
@@ -1287,36 +1293,38 @@ export default function Dashboard() {
                       )}
                     </div>
                   )}
-
-                  {/* Side-cushion page-flip arrows. Positioned over the
-                      padding around the page so they don't overlap text.
-                      Hidden when there's no PDF, only one page, or at the
-                      ends of the document. */}
-                  {pdfBlobUrl && numPages > 1 && (
-                    <>
-                      <button
-                        data-testid="button-prev-page"
-                        type="button"
-                        aria-label="Previous page"
-                        onClick={() => setSelectedPage((p) => Math.max(1, p - 1))}
-                        disabled={selectedPage <= 1}
-                        className="absolute left-2 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center h-12 w-12 rounded-full border border-border bg-background/85 backdrop-blur shadow-md text-foreground/80 hover:text-foreground hover:bg-background hover:shadow-lg transition disabled:opacity-30 disabled:pointer-events-none"
-                      >
-                        <ChevronLeft className="w-6 h-6" />
-                      </button>
-                      <button
-                        data-testid="button-next-page"
-                        type="button"
-                        aria-label="Next page"
-                        onClick={() => setSelectedPage((p) => Math.min(numPages, p + 1))}
-                        disabled={selectedPage >= numPages}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center h-12 w-12 rounded-full border border-border bg-background/85 backdrop-blur shadow-md text-foreground/80 hover:text-foreground hover:bg-background hover:shadow-lg transition disabled:opacity-30 disabled:pointer-events-none"
-                      >
-                        <ChevronRight className="w-6 h-6" />
-                      </button>
-                    </>
-                  )}
                 </div>
+
+                {/* Side-cushion page-flip arrows live OUTSIDE the scroll
+                    container so they stay vertically centered on the
+                    visible viewport even as the auditor scrolls down a
+                    long page. `pointer-events-none` on the wrapper so
+                    clicks/scrolls pass through the empty cushion area;
+                    each button re-enables its own pointer events. */}
+                {pdfBlobUrl && numPages > 1 && (
+                  <div className="absolute inset-y-0 left-0 right-0 pointer-events-none flex items-center justify-between px-2 z-10">
+                    <button
+                      data-testid="button-prev-page"
+                      type="button"
+                      aria-label="Previous page"
+                      onClick={() => setSelectedPage((p) => Math.max(1, p - 1))}
+                      disabled={selectedPage <= 1}
+                      className="pointer-events-auto flex items-center justify-center h-12 w-12 rounded-full border border-border bg-background/85 backdrop-blur shadow-md text-foreground/80 hover:text-foreground hover:bg-background hover:shadow-lg transition disabled:opacity-30 disabled:pointer-events-none"
+                    >
+                      <ChevronLeft className="w-6 h-6" />
+                    </button>
+                    <button
+                      data-testid="button-next-page"
+                      type="button"
+                      aria-label="Next page"
+                      onClick={() => setSelectedPage((p) => Math.min(numPages, p + 1))}
+                      disabled={selectedPage >= numPages}
+                      className="pointer-events-auto flex items-center justify-center h-12 w-12 rounded-full border border-border bg-background/85 backdrop-blur shadow-md text-foreground/80 hover:text-foreground hover:bg-background hover:shadow-lg transition disabled:opacity-30 disabled:pointer-events-none"
+                    >
+                      <ChevronRight className="w-6 h-6" />
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
