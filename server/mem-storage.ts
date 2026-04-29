@@ -67,6 +67,9 @@ export class MemStorage implements IStorage {
     this.findings.set(findingId, merged);
     return merged;
   }
+  async deleteFinding(findingId: string) {
+    this.findings.delete(findingId);
+  }
   async deleteFindingsByAudit(auditId: string) {
     for (const [id, f] of this.findings) {
       if (f.auditId === auditId) this.findings.delete(id);

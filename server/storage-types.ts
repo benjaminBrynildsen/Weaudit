@@ -171,6 +171,7 @@ export interface IStorage {
   getFinding(findingId: string): Promise<Finding | undefined>;
   getFindingsByAudit(auditId: string): Promise<Finding[]>;
   updateFinding(findingId: string, patch: Partial<Finding>): Promise<Finding | undefined>;
+  deleteFinding(findingId: string): Promise<void>;
   deleteFindingsByAudit(auditId: string): Promise<void>;
 
   // Unknown fees (delete by audit)

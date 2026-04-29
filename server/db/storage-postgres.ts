@@ -140,6 +140,10 @@ export class PostgresStorage implements IStorage {
     return row ? (stripNulls(row) as Finding) : undefined;
   }
 
+  async deleteFinding(findingId: string): Promise<void> {
+    await this.db.delete(findingsT).where(eq(findingsT.findingId, findingId));
+  }
+
   async deleteFindingsByAudit(auditId: string): Promise<void> {
     await this.db.delete(findingsT).where(eq(findingsT.auditId, auditId));
   }

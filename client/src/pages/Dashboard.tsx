@@ -37,11 +37,12 @@ import {
   Search,
   ShieldCheck,
   Sparkles,
+  Trash2,
   TrendingDown,
   UploadCloud,
   X,
 } from "lucide-react";
-import { useUploadStatement, useTriggerScan, useAuditStatus, useAudit, useFindings, useUpdateFinding, useCompanies, useUpdateCompany } from "@/lib/api";
+import { useUploadStatement, useTriggerScan, useAuditStatus, useAudit, useFindings, useUpdateFinding, useCompanies, useUpdateCompany, useDowngradeRules } from "@/lib/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Document, Page, pdfjs } from "react-pdf";
@@ -128,28 +129,31 @@ function fmtPct(n?: number) {
   return `${Math.round(n * 100)}%`;
 }
 
-/** Wrapper used by the sidebar's detail view. Same width as the list
- *  so the layout doesn't reflow when toggling, plus a close (X) button
- *  in the header to return to the list. */
+/** Wrapper used by the sidebar's detail / form views. Same width as
+ *  the list so the layout doesn't reflow when toggling, plus a close
+ *  (X) button in the header to return to the list. Footer slot is
+ *  provided so callers can render their own action buttons. */
 function SidebarDetail({
   title,
   subtitle,
   accent,
   onClose,
-  onJump,
+  footer,
   children,
 }: {
   title: string;
   subtitle: string;
-  accent: "red" | "yellow";
+  accent: "red" | "yellow" | "blue";
   onClose: () => void;
-  onJump: () => void;
+  footer: React.ReactNode;
   children: React.ReactNode;
 }) {
   const accentClass =
     accent === "red"
       ? "bg-red-500/10 text-red-700 border-red-500/20"
-      : "bg-yellow-400/15 text-yellow-700 border-yellow-500/20";
+      : accent === "yellow"
+        ? "bg-yellow-400/15 text-yellow-700 border-yellow-500/20"
+        : "bg-blue-500/10 text-blue-700 border-blue-500/20";
   return (
     <aside className="w-72 shrink-0 border-r border-border bg-secondary/15 flex flex-col overscroll-contain">
       <div className="flex items-start justify-between gap-2 p-4 border-b border-border bg-background/40 backdrop-blur sticky top-0 z-10">
@@ -173,16 +177,8 @@ function SidebarDetail({
         {children}
       </div>
 
-      <div className="p-3 border-t border-border bg-background/40">
-        <Button
-          size="sm"
-          variant="outline"
-          className="w-full"
-          onClick={onJump}
-        >
-          <FileText className="w-3.5 h-3.5 mr-1.5" />
-          Jump to evidence
-        </Button>
+      <div className="p-3 border-t border-border bg-background/40 space-y-2">
+        {footer}
       </div>
     </aside>
   );
@@ -209,6 +205,212 @@ function DetailField({
   );
 }
 
+/** Payload the auditor submits when manually adding a downgrade the
+ *  engine missed. Comes from CustomDowngradeForm and goes to the parent
+ *  which posts to /api/findings. */
+type CustomDowngradeInput = {
+  ruleId: string | null;
+  title: string;
+  rate: number;
+  targetRate: number;
+  amount: number;
+  transactionCount: number;
+  page: number;
+  rawLine: string;
+  reason: string;
+};
+
+function CustomDowngradeForm({
+  rules,
+  defaultPage,
+  onCancel,
+  onSave,
+}: {
+  rules: { ruleId: string; brand: "V" | "M"; name: string; rate: number; targetRate: number; reason: string }[];
+  defaultPage: number;
+  onCancel: () => void;
+  onSave: (input: CustomDowngradeInput) => Promise<void>;
+}) {
+  const [ruleId, setRuleId] = useState<string>(rules[0]?.ruleId ?? "");
+  const [customTitle, setCustomTitle] = useState<string>("");
+  const [volume, setVolume] = useState<string>("");
+  const [chargedRate, setChargedRate] = useState<string>("");
+  const [targetRate, setTargetRate] = useState<string>("");
+  const [transactionCount, setTransactionCount] = useState<string>("1");
+  const [page, setPage] = useState<string>(String(defaultPage));
+  const [submitting, setSubmitting] = useState(false);
+
+  // Auto-fill rate / target rate when the user picks a rule, but leave
+  // them editable in case the actual statement charged a different rate.
+  const selectedRule = rules.find((r) => r.ruleId === ruleId);
+  useEffect(() => {
+    if (selectedRule) {
+      if (chargedRate === "") setChargedRate(selectedRule.rate.toFixed(2));
+      if (targetRate === "") setTargetRate(selectedRule.targetRate.toFixed(2));
+    }
+    // We deliberately depend only on selectedRule so manual edits stick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRule]);
+
+  const isCustom = ruleId === "__custom__";
+  const titleForSave = isCustom
+    ? customTitle.trim()
+    : selectedRule
+      ? `${selectedRule.brand === "V" ? "Visa" : "Mastercard"} - ${selectedRule.name}`
+      : "";
+  const reasonForSave = selectedRule?.reason ?? "Manually added by auditor";
+
+  const submit = async () => {
+    if (!titleForSave) return;
+    const amt = parseFloat(volume) || 0;
+    const r = parseFloat(chargedRate) || 0;
+    const tr = parseFloat(targetRate) || 0;
+    const tx = Math.max(1, parseInt(transactionCount, 10) || 1);
+    const pg = Math.max(1, parseInt(page, 10) || 1);
+    if (amt <= 0) return;
+    setSubmitting(true);
+    try {
+      await onSave({
+        ruleId: isCustom ? null : ruleId || null,
+        title: titleForSave,
+        rate: r,
+        targetRate: tr,
+        amount: amt,
+        transactionCount: tx,
+        page: pg,
+        rawLine: titleForSave,
+        reason: reasonForSave,
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <SidebarDetail
+      title="Add Downgrade"
+      subtitle="The engine missed one — record it manually"
+      accent="blue"
+      onClose={onCancel}
+      footer={
+        <>
+          <Button
+            size="sm"
+            className="w-full"
+            onClick={() => void submit()}
+            disabled={submitting || !titleForSave || !(parseFloat(volume) > 0)}
+          >
+            {submitting ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : null}
+            {submitting ? "Saving…" : "Save downgrade"}
+          </Button>
+          <Button size="sm" variant="ghost" className="w-full" onClick={onCancel} disabled={submitting}>
+            Cancel
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-2">
+        <Label htmlFor="custom-rule" className="text-[11px] text-muted-foreground">Rule</Label>
+        <select
+          id="custom-rule"
+          className="w-full h-9 rounded-md border border-border bg-background px-2 text-sm"
+          value={ruleId || "__custom__"}
+          onChange={(e) => {
+            const v = e.target.value;
+            setRuleId(v);
+            if (v === "__custom__") {
+              setChargedRate("");
+              setTargetRate("");
+            } else {
+              const r = rules.find((x) => x.ruleId === v);
+              if (r) {
+                setChargedRate(r.rate.toFixed(2));
+                setTargetRate(r.targetRate.toFixed(2));
+              }
+            }
+          }}
+        >
+          {rules.map((r) => (
+            <option key={r.ruleId} value={r.ruleId}>
+              {r.brand === "V" ? "Visa" : "MC"} — {r.name}
+            </option>
+          ))}
+          <option value="__custom__">Custom (type a name)</option>
+        </select>
+      </div>
+
+      {isCustom && (
+        <div className="space-y-2">
+          <Label htmlFor="custom-title" className="text-[11px] text-muted-foreground">Custom name</Label>
+          <Input
+            id="custom-title"
+            value={customTitle}
+            onChange={(e) => setCustomTitle(e.target.value)}
+            placeholder="e.g. Visa - Custom Downgrade"
+            className="h-9"
+          />
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <Label htmlFor="custom-volume" className="text-[11px] text-muted-foreground">Volume ($)</Label>
+          <Input
+            id="custom-volume"
+            value={volume}
+            onChange={(e) => setVolume(e.target.value)}
+            placeholder="0.00"
+            inputMode="decimal"
+            className="h-9 font-mono"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="custom-tx" className="text-[11px] text-muted-foreground"># Transactions</Label>
+          <Input
+            id="custom-tx"
+            value={transactionCount}
+            onChange={(e) => setTransactionCount(e.target.value)}
+            inputMode="numeric"
+            className="h-9 font-mono"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="custom-rate" className="text-[11px] text-muted-foreground">Charged rate %</Label>
+          <Input
+            id="custom-rate"
+            value={chargedRate}
+            onChange={(e) => setChargedRate(e.target.value)}
+            placeholder="0.00"
+            inputMode="decimal"
+            className="h-9 font-mono"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="custom-target" className="text-[11px] text-muted-foreground">Target rate %</Label>
+          <Input
+            id="custom-target"
+            value={targetRate}
+            onChange={(e) => setTargetRate(e.target.value)}
+            placeholder="0.00"
+            inputMode="decimal"
+            className="h-9 font-mono"
+          />
+        </div>
+        <div className="space-y-1 col-span-2">
+          <Label htmlFor="custom-page" className="text-[11px] text-muted-foreground">Page</Label>
+          <Input
+            id="custom-page"
+            value={page}
+            onChange={(e) => setPage(e.target.value)}
+            inputMode="numeric"
+            className="h-9 font-mono"
+          />
+        </div>
+      </div>
+    </SidebarDetail>
+  );
+}
+
 /**
  * Left-rail findings list shown in the workspace's full-screen mode.
  * Same data the inline finding cards use; clicking a row opens a
@@ -224,10 +426,17 @@ function FindingsSidebar({
   selectedEvidenceId,
   selectedNonPci,
   selectedDowngrade,
+  addingCustom,
+  rules,
+  defaultPage,
   onSelectNonPci,
   onSelectDowngrade,
   onClearSelection,
   onJumpToEvidence,
+  onStartAddCustom,
+  onCancelAddCustom,
+  onSaveCustom,
+  onDeleteFinding,
 }: {
   merchant?: string;
   statementMonth?: string;
@@ -236,17 +445,19 @@ function FindingsSidebar({
   downgrades: DowngradeRow[];
   downgradeRevenueLost: number;
   selectedEvidenceId: string | null;
-  // When either of these is set, the sidebar swaps from list view to
-  // detail view for that finding. The PDF is unaffected.
   selectedNonPci: NonPciRow | null;
   selectedDowngrade: DowngradeRow | null;
-  // Sidebar clicks open the detail panel above instead of moving the
-  // PDF; the detail panel has a "Jump to evidence" button for when the
-  // auditor *does* want to navigate.
+  addingCustom: boolean;
+  rules: { ruleId: string; brand: "V" | "M"; name: string; rate: number; targetRate: number; reason: string }[];
+  defaultPage: number;
   onSelectNonPci: (row: NonPciRow) => void;
   onSelectDowngrade: (row: DowngradeRow) => void;
   onClearSelection: () => void;
   onJumpToEvidence: (ref: EvidenceRef, id?: string) => void;
+  onStartAddCustom: () => void;
+  onCancelAddCustom: () => void;
+  onSaveCustom: (input: CustomDowngradeInput) => Promise<void>;
+  onDeleteFinding: (findingId: string) => Promise<void>;
 }) {
   // ── Detail view: shown when a finding is selected. Replaces the
   // list so the auditor focuses on one finding at a time.
@@ -257,7 +468,32 @@ function FindingsSidebar({
         subtitle={`Page ${selectedNonPci.ref.page}`}
         accent="red"
         onClose={onClearSelection}
-        onJump={() => onJumpToEvidence(selectedNonPci.ref, selectedNonPci.id)}
+        footer={
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full"
+              onClick={() => onJumpToEvidence(selectedNonPci.ref, selectedNonPci.id)}
+            >
+              <FileText className="w-3.5 h-3.5 mr-1.5" />
+              Jump to evidence
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full border-red-500/40 text-red-700 hover:bg-red-500/10"
+              onClick={() => {
+                if (window.confirm("Delete this Non-PCI finding? This can't be undone.")) {
+                  void onDeleteFinding(selectedNonPci.id);
+                }
+              }}
+            >
+              <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+              Delete
+            </Button>
+          </>
+        }
       >
         <DetailField label="Raw line" mono>{selectedNonPci.raw}</DetailField>
         <DetailField label="Fee charged" mono valueClassName="text-red-600">
@@ -281,7 +517,32 @@ function FindingsSidebar({
         subtitle={`Page ${selectedDowngrade.ref.page}`}
         accent="yellow"
         onClose={onClearSelection}
-        onJump={() => onJumpToEvidence(selectedDowngrade.ref, selectedDowngrade.id)}
+        footer={
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full"
+              onClick={() => onJumpToEvidence(selectedDowngrade.ref, selectedDowngrade.id)}
+            >
+              <FileText className="w-3.5 h-3.5 mr-1.5" />
+              Jump to evidence
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full border-red-500/40 text-red-700 hover:bg-red-500/10"
+              onClick={() => {
+                if (window.confirm("Delete this downgrade? This can't be undone.")) {
+                  void onDeleteFinding(selectedDowngrade.id);
+                }
+              }}
+            >
+              <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+              Delete
+            </Button>
+          </>
+        }
       >
         <DetailField label="Raw line" mono>{selectedDowngrade.raw}</DetailField>
         <div className="grid grid-cols-2 gap-2">
@@ -314,6 +575,17 @@ function FindingsSidebar({
     );
   }
 
+  if (addingCustom) {
+    return (
+      <CustomDowngradeForm
+        rules={rules}
+        defaultPage={defaultPage}
+        onCancel={onCancelAddCustom}
+        onSave={onSaveCustom}
+      />
+    );
+  }
+
   // ── List view: default state.
   const totalCount = nonPci.length + downgrades.length;
   return (
@@ -329,12 +601,12 @@ function FindingsSidebar({
         </p>
       </div>
 
-      {totalCount === 0 ? (
-        <div className="p-6 text-xs text-muted-foreground">
-          No findings detected yet. Run a scan to populate this list.
-        </div>
-      ) : (
-        <div className="divide-y divide-border/60">
+      <div className="divide-y divide-border/60">
+        {totalCount === 0 && (
+          <div className="px-4 py-3 text-xs text-muted-foreground border-b border-border/60">
+            No findings detected yet — run a scan to populate this list, or click + to add one manually.
+          </div>
+        )}
           {nonPci.length > 0 && (
             <div>
               <div className="px-4 py-2 flex items-center justify-between text-[11px] uppercase tracking-wide">
@@ -364,12 +636,30 @@ function FindingsSidebar({
             </div>
           )}
 
-          {downgrades.length > 0 && (
-            <div>
-              <div className="px-4 py-2 flex items-center justify-between text-[11px] uppercase tracking-wide">
-                <span className="text-yellow-700 font-semibold">Downgrades · {downgrades.length}</span>
-                <span className="font-mono text-yellow-700/80">${downgradeRevenueLost.toFixed(2)}</span>
+          <div>
+            <div className="px-4 py-2 flex items-center justify-between text-[11px] uppercase tracking-wide gap-2">
+              <span className="text-yellow-700 font-semibold">
+                Downgrades · {downgrades.length}
+              </span>
+              <div className="flex items-center gap-2">
+                {downgrades.length > 0 && (
+                  <span className="font-mono text-yellow-700/80 normal-case">
+                    ${downgradeRevenueLost.toFixed(2)}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={onStartAddCustom}
+                  className="h-5 w-5 rounded-md border border-border bg-background hover:bg-secondary/40 flex items-center justify-center text-muted-foreground hover:text-foreground transition"
+                  aria-label="Add custom downgrade"
+                  title="Add a downgrade the engine missed"
+                >
+                  <span className="text-sm leading-none">+</span>
+                </button>
               </div>
+            </div>
+            {downgrades.length > 0 && (
+              <>
               {downgrades.map((r) => (
                 <button
                   key={r.id}
@@ -395,10 +685,10 @@ function FindingsSidebar({
                   </div>
                 </button>
               ))}
-            </div>
-          )}
-        </div>
-      )}
+              </>
+            )}
+          </div>
+      </div>
     </aside>
   );
 }
@@ -433,6 +723,9 @@ export default function Dashboard() {
   // Non-PCI counterpart of selectedDowngrade — opened from the sidebar
   // so the auditor can review the row without scrolling the PDF away.
   const [selectedNonPci, setSelectedNonPci] = useState<NonPciRow | null>(null);
+  // Full-screen sidebar mode: when true, render the "Add custom
+  // downgrade" form in place of the list/detail.
+  const [addingCustom, setAddingCustom] = useState(false);
   const pdfContainerRef = useRef<HTMLDivElement>(null);
   // Live container width feeds into <Page width> so the page renders at
   // the readable "fit-to-card-width" size. ResizeObserver below.
@@ -500,6 +793,7 @@ export default function Dashboard() {
   const { data: auditStatusData } = useAuditStatus(currentAuditId, isScanning);
   const { data: auditData } = useAudit(currentAuditId);
   const { data: findingsData } = useFindings(currentAuditId);
+  const { data: downgradeRulesData } = useDowngradeRules();
   const updateFindingMutation = useUpdateFinding();
   const { data: companiesData } = useCompanies();
   const updateCompanyMutation = useUpdateCompany();
@@ -1470,14 +1764,90 @@ export default function Dashboard() {
               selectedEvidenceId={selectedEvidenceId}
               selectedNonPci={selectedNonPci}
               selectedDowngrade={selectedDowngrade}
-              onSelectNonPci={setSelectedNonPci}
-              onSelectDowngrade={setSelectedDowngrade}
+              addingCustom={addingCustom}
+              rules={(downgradeRulesData ?? []).filter((r) => r.enabled !== false)}
+              defaultPage={selectedPage}
+              onSelectNonPci={(r) => {
+                setAddingCustom(false);
+                setSelectedNonPci(r);
+              }}
+              onSelectDowngrade={(r) => {
+                setAddingCustom(false);
+                setSelectedDowngrade(r);
+              }}
               onClearSelection={() => {
                 setSelectedNonPci(null);
                 setSelectedDowngrade(null);
               }}
               onJumpToEvidence={(ref, id) => {
                 jumpToEvidence(ref, id);
+                setSelectedNonPci(null);
+                setSelectedDowngrade(null);
+              }}
+              onStartAddCustom={() => {
+                setSelectedNonPci(null);
+                setSelectedDowngrade(null);
+                setAddingCustom(true);
+              }}
+              onCancelAddCustom={() => setAddingCustom(false)}
+              onSaveCustom={async (input) => {
+                if (!currentAuditId) return;
+                const res = await fetch("/api/findings", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    auditId: currentAuditId,
+                    type: "downgrade",
+                    title: input.title,
+                    rawLine: input.rawLine,
+                    rate: input.rate,
+                    targetRate: input.targetRate,
+                    amount: input.amount,
+                    transactionCount: input.transactionCount,
+                    page: input.page,
+                    reason: input.reason,
+                    severity:
+                      input.rate - input.targetRate > 1
+                        ? "High"
+                        : input.rate - input.targetRate >= 0.5
+                          ? "Medium"
+                          : "Low",
+                  }),
+                  credentials: "include",
+                });
+                if (!res.ok) {
+                  toast({
+                    title: "Couldn't save downgrade",
+                    description: await res.text(),
+                    variant: "destructive",
+                  });
+                  return;
+                }
+                queryClient.invalidateQueries({
+                  queryKey: ["/api/findings?auditId=" + currentAuditId],
+                });
+                queryClient.invalidateQueries({ queryKey: ["/api/audits", currentAuditId] });
+                toast({ title: "Downgrade added", description: input.title });
+                setAddingCustom(false);
+              }}
+              onDeleteFinding={async (findingId) => {
+                const res = await fetch(`/api/findings/${findingId}`, {
+                  method: "DELETE",
+                  credentials: "include",
+                });
+                if (!res.ok && res.status !== 204) {
+                  toast({
+                    title: "Couldn't delete finding",
+                    description: await res.text(),
+                    variant: "destructive",
+                  });
+                  return;
+                }
+                queryClient.invalidateQueries({
+                  queryKey: ["/api/findings?auditId=" + currentAuditId],
+                });
+                queryClient.invalidateQueries({ queryKey: ["/api/audits", currentAuditId] });
+                toast({ title: "Finding deleted" });
                 setSelectedNonPci(null);
                 setSelectedDowngrade(null);
               }}

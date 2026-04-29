@@ -261,6 +261,66 @@ export async function registerRoutes(
     }
   });
 
+  // Used by the auditor's full-screen workspace to add a manually-found
+  // downgrade the engine missed. Body shape mirrors createFinding(); the
+  // server fills in sensible defaults so callers only have to send the
+  // few fields a human actually picks (rule, volume, rate, page, ...).
+  app.post("/api/findings", async (req: Request, res: Response) => {
+    try {
+      const body = req.body || {};
+      if (!body.auditId) return res.status(400).json({ error: "auditId is required" });
+      if (!body.title) return res.status(400).json({ error: "title is required" });
+
+      const amount = Number(body.amount) || 0;
+      const rate = Number(body.rate) || 0;
+      const targetRate = body.targetRate != null ? Number(body.targetRate) : undefined;
+      const rateSpread = targetRate != null ? Math.max(0, rate - targetRate) : 0;
+      const spread = body.spread != null
+        ? Number(body.spread)
+        : rateSpread > 0 && amount > 0
+          ? amount * rateSpread / 100
+          : 0;
+
+      const severity: "High" | "Medium" | "Low" =
+        body.severity || (rateSpread > 1 ? "High" : rateSpread >= 0.5 ? "Medium" : "Low");
+
+      const finding = await storage.createFinding({
+        auditId: body.auditId,
+        type: body.type || "downgrade",
+        title: body.title,
+        category: body.category || "Pricing Model",
+        rawLine: body.rawLine || body.title,
+        amount,
+        rate,
+        page: Number(body.page) || 1,
+        lineNum: Number(body.lineNum) || 0,
+        severity,
+        confidence: body.confidence || "High",
+        status: body.status || "open",
+        reason: body.reason || "Manually added by auditor",
+        recommendedAction: body.recommendedAction || "Review interchange qualification",
+        targetRate,
+        spread,
+        priority: body.priority,
+        needsReview: body.needsReview ?? false,
+        transactionCount: body.transactionCount != null ? Number(body.transactionCount) : 1,
+      });
+      res.status(201).json(finding);
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  app.delete("/api/findings/:id", async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id as string;
+      await storage.deleteFinding(id);
+      res.status(204).end();
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
   // ── Downgrade Rules ─────────────────────────────────────────────────────────
 
   app.get("/api/downgrade-rules", async (_req: Request, res: Response) => {
