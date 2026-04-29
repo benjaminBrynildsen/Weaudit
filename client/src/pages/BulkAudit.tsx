@@ -514,7 +514,11 @@ export default function BulkAudit() {
                         variant="ghost"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setLocation(`/history?auditId=${entry.auditId}`);
+                          // Open the same workspace-with-sidebar the
+                          // single-audit dashboard uses, in full-screen
+                          // mode, bound to this audit. Browser back
+                          // returns to the bulk queue.
+                          setLocation(`/dashboard?auditId=${entry.auditId}&fullscreen=1`);
                         }}
                       >
                         <Sparkles className="w-3.5 h-3.5 mr-1.5" />

@@ -943,6 +943,47 @@ export default function Dashboard() {
     };
   }, [isFullScreen]);
 
+  // External audit loading: when navigated to /dashboard?auditId=X
+  // (e.g. from BulkAudit's Review button), bind that audit into the
+  // workspace and optionally jump straight into full-screen review
+  // mode via &fullscreen=1.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const auditIdFromUrl = params.get("auditId");
+    const fullscreenFromUrl = params.get("fullscreen") === "1";
+    if (auditIdFromUrl) {
+      setCurrentAuditId(auditIdFromUrl);
+      if (fullscreenFromUrl) setIsFullScreen(true);
+    }
+    // intentional: only run on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Once an externally-loaded audit's data arrives, fetch the source
+  // statement PDF so the viewer has something to render. Mirrors the
+  // upload-flow's blob URL setup but pulls the file from the server.
+  useEffect(() => {
+    if (!auditData) return;
+    // Map server status to UI status so the workspace buttons enable.
+    if (auditData.status === "complete") setStatus("Complete");
+    else if (auditData.status === "needs_review") setStatus("Needs Review");
+    if (pdfBlobUrl) return;
+    const statementId = (auditData.statements as Array<{ statementId: string }> | undefined)?.[0]?.statementId;
+    if (!statementId) return;
+    let cancelled = false;
+    fetch(`/api/statements/${statementId}/file`, { credentials: "include" })
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((blob) => {
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        setPdfBlobUrl(url);
+      })
+      .catch((e) => console.error("Failed to load PDF:", e));
+    return () => {
+      cancelled = true;
+    };
+  }, [auditData, pdfBlobUrl]);
+
   function resetScan() {
     setPhase("idle");
     setStatus("Idle");
@@ -1755,8 +1796,16 @@ export default function Dashboard() {
         >
           {isFullScreen && (
             <FindingsSidebar
-              merchant={fields.company_dba?.value}
-              statementMonth={fields.statement_period?.value}
+              merchant={
+                fields.company_dba?.value && fields.company_dba.value !== "—"
+                  ? fields.company_dba.value
+                  : auditData?.dba || auditData?.clientName
+              }
+              statementMonth={
+                fields.statement_period?.value && fields.statement_period.value !== "—"
+                  ? fields.statement_period.value
+                  : auditData?.statementMonth
+              }
               nonPci={nonPci}
               nonPciTotal={nonPciTotal}
               downgrades={downgrades}
