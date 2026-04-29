@@ -136,6 +136,124 @@ export default function BulkAudit() {
     window.localStorage.setItem(BULK_STATE_KEY, JSON.stringify(serializable));
   }, [entries]);
 
+  // Recover entries that were mid-flight when the auditor navigated
+  // away (e.g. clicked Review on a finished row while later rows were
+  // still uploading/scanning). The server kept processing; it's just
+  // the UI loop that died with the unmount. On mount we re-poll
+  // status for any audit that still has an auditId, and finalize the
+  // row from whatever the server reports. Truly orphaned rows (no
+  // auditId, file blob gone) get marked error so the queue isn't
+  // permanently stuck.
+  useEffect(() => {
+    let cancelled = false;
+    const recover = async () => {
+      // Snapshot stuck rows up-front so we don't keep re-entering as
+      // entries update mid-recovery.
+      const stuck = entries.filter(
+        (e) => e.status === "uploading" || e.status === "scanning",
+      );
+      if (stuck.length === 0) return;
+
+      // Orphans: never got an auditId → can't recover. Mark as error.
+      const orphans = stuck.filter((e) => !e.auditId);
+      if (orphans.length > 0 && !cancelled) {
+        setEntries((prev) =>
+          prev.map((e) =>
+            orphans.some((o) => o.id === e.id)
+              ? {
+                  ...e,
+                  status: "error" as BulkFileStatus,
+                  error: "Upload was interrupted; re-add this file to retry.",
+                }
+              : e,
+          ),
+        );
+      }
+
+      const recoverable = stuck.filter((e) => e.auditId);
+      for (const entry of recoverable) {
+        if (cancelled) return;
+        try {
+          const finalStatus = await waitForAudit(entry.auditId!);
+
+          // Pull the same post-scan summary the live loop fetches so
+          // the row lights up with findings/merchant/processor.
+          let summary: BulkFileEntry["findings"];
+          let merchant: string | undefined;
+          let processorDetected: string | undefined;
+          let companyMatched: boolean | undefined;
+          try {
+            const detailRes = await fetch(`/api/audits/${entry.auditId}`, { credentials: "include" });
+            if (detailRes.ok) {
+              const detail = await detailRes.json();
+              const findings: Array<{ type: string; status: string; needsReview?: boolean; amount: number; spread?: number; rate: number }> =
+                detail.findings || [];
+              const nonPci = findings.filter((f) => f.type === "non_pci" && f.status !== "false_positive");
+              const downgrades = findings.filter(
+                (f) => f.type === "downgrade" && f.status !== "false_positive" && !f.needsReview,
+              );
+              const serviceCharges = findings.filter((f) => f.type === "service_charge" && f.status !== "false_positive");
+              const totalNonPci = nonPci.reduce((s, f) => s + (f.amount || 0), 0);
+              const totalDowngrade = downgrades.reduce((s, f) => s + (f.spread || 0), 0);
+              const totalServiceCharge = serviceCharges
+                .filter((f) => f.spread != null && f.spread > 0)
+                .reduce((s, f) => s + (f.rate > 0 ? f.amount * (f.spread || 0) / f.rate : 0), 0);
+              summary = {
+                nonPci: nonPci.length,
+                downgrades: downgrades.length,
+                revenueLost: totalNonPci + totalDowngrade + totalServiceCharge,
+              };
+              merchant = detail.dba || detail.clientName;
+              processorDetected = detail.processorDetected;
+              companyMatched = detail.companyMatch?.matched === true;
+            }
+          } catch {
+            // Summary is best-effort.
+          }
+
+          if (cancelled) return;
+          setEntries((prev) =>
+            prev.map((e) =>
+              e.id === entry.id
+                ? {
+                    ...e,
+                    status:
+                      finalStatus === "complete"
+                        ? ("complete" as BulkFileStatus)
+                        : ("needs_review" as BulkFileStatus),
+                    progress: 100,
+                    findings: summary ?? e.findings,
+                    merchant: merchant ?? e.merchant,
+                    processorDetected: processorDetected ?? e.processorDetected,
+                    companyMatched: companyMatched ?? e.companyMatched,
+                  }
+                : e,
+            ),
+          );
+        } catch (err) {
+          if (cancelled) return;
+          setEntries((prev) =>
+            prev.map((e) =>
+              e.id === entry.id
+                ? {
+                    ...e,
+                    status: "error" as BulkFileStatus,
+                    error: (err as Error).message || "Recovery failed",
+                  }
+                : e,
+            ),
+          );
+        }
+      }
+    };
+    void recover();
+    return () => {
+      cancelled = true;
+    };
+    // intentional: only run on mount. We snapshot `entries` inside.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Re-read reviewed set whenever the tab regains focus — covers the
   // case where the workspace marks an audit reviewed and then sends
   // the user back here.
