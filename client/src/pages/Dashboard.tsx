@@ -154,10 +154,13 @@ export default function Dashboard() {
   const [numPages, setNumPages] = useState<number>(1);
   const [selectedDowngrade, setSelectedDowngrade] = useState<DowngradeRow | null>(null);
   const pdfContainerRef = useRef<HTMLDivElement>(null);
-  // Tracked separately from the page-render width because the viewer
-  // sizes the page by HEIGHT to fill the screen for an auditor's
-  // workspace; the container ref's offsetHeight feeds into <Page height>.
-  const [pdfViewportHeight, setPdfViewportHeight] = useState<number>(0);
+  // Live container width feeds into <Page width> so the page renders at
+  // the readable "fit-to-card-width" size. ResizeObserver below.
+  const [pdfViewportWidth, setPdfViewportWidth] = useState<number>(0);
+  // Auditor-controlled zoom multiplier on top of fit-to-width. 1.0 ≈ the
+  // page fills the workspace horizontally; goes 0.6×–2.0× via the zoom
+  // buttons in the workspace header.
+  const [pdfZoom, setPdfZoom] = useState<number>(1);
   const [showCelebration, setShowCelebration] = useState<boolean>(false);
   const celebratedAuditRef = useRef<string | null>(null);
 
@@ -314,13 +317,13 @@ export default function Dashboard() {
     if (id) setSelectedEvidenceId(id);
   }
 
-  // Track the PDF viewport height so the page renders sized-to-fit. The
-  // workspace fills the screen vertically; the inner page should fill
-  // its container so an auditor doesn't have to zoom or scroll.
+  // Track the PDF viewport width so the page renders sized-to-fit. The
+  // workspace card is capped at viewport height; if the page is taller
+  // than the card it scrolls vertically inside.
   useEffect(() => {
     const el = pdfContainerRef.current;
     if (!el) return;
-    const update = () => setPdfViewportHeight(el.clientHeight);
+    const update = () => setPdfViewportWidth(el.clientWidth);
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
@@ -1139,12 +1142,13 @@ export default function Dashboard() {
           </div>
         </Card>
 
-        {/* PDF Viewer — auditor workspace. Fills the screen vertically so
-            the page is large enough to read without zooming, and surfaces
-            page navigation as side-cushion arrow buttons (←/→ keyboard
-            shortcuts also work). Footer + header stay compact so the
-            actual document gets the most pixels. */}
-        <Card className="overflow-hidden shadow-sm flex flex-col h-[calc(100vh-7rem)] min-h-[640px]">
+        {/* PDF Viewer — auditor workspace. Card is capped at viewport
+            height so it never grows off-screen, but the page itself is
+            sized by container WIDTH so it stays large and readable.
+            Vertical overflow scrolls inside the card. Page navigation
+            shows up as side-cushion arrow buttons (←/→ keyboard
+            shortcuts also work) and zoom is auditor-controlled. */}
+        <Card className="overflow-hidden shadow-sm flex flex-col h-[calc(100vh-5rem)] min-h-[640px]">
           <div className="px-4 sm:px-5 py-3 border-b border-border bg-secondary/10 shrink-0">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
               <div className="min-w-0">
@@ -1157,6 +1161,41 @@ export default function Dashboard() {
               </div>
 
               <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 mr-1">
+                  <Button
+                    data-testid="button-zoom-out"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 w-8 p-0"
+                    onClick={() => setPdfZoom((z) => Math.max(0.6, +(z - 0.1).toFixed(2)))}
+                    disabled={!pdfBlobUrl || pdfZoom <= 0.6}
+                    title="Zoom out"
+                  >
+                    <span className="text-base leading-none">−</span>
+                  </Button>
+                  <Button
+                    data-testid="button-zoom-reset"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 px-2 font-mono text-[11px] tabular-nums"
+                    onClick={() => setPdfZoom(1)}
+                    disabled={!pdfBlobUrl}
+                    title="Reset zoom (fit width)"
+                  >
+                    {Math.round(pdfZoom * 100)}%
+                  </Button>
+                  <Button
+                    data-testid="button-zoom-in"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 w-8 p-0"
+                    onClick={() => setPdfZoom((z) => Math.min(2, +(z + 0.1).toFixed(2)))}
+                    disabled={!pdfBlobUrl || pdfZoom >= 2}
+                    title="Zoom in"
+                  >
+                    <span className="text-base leading-none">+</span>
+                  </Button>
+                </div>
                 <Badge data-testid="badge-page" variant="outline" className="font-mono text-xs">
                   Page {selectedPage} / {numPages}
                 </Badge>
@@ -1204,12 +1243,15 @@ export default function Dashboard() {
                     >
                       <Page
                         pageNumber={selectedPage}
-                        // Size by HEIGHT so the page fills the workspace
-                        // vertically. We subtract a little for top/bottom
-                        // padding. Falls back to a width-based default
-                        // until the container has measured.
-                        height={pdfViewportHeight > 32 ? pdfViewportHeight - 32 : undefined}
-                        width={pdfViewportHeight > 32 ? undefined : 600}
+                        // Fit-to-card-width × auditor's zoom factor. The
+                        // x-padding (px-16 above) gives the side-cushion
+                        // arrow buttons room to sit without overlapping
+                        // the page text.
+                        width={
+                          pdfViewportWidth > 160
+                            ? (pdfViewportWidth - 128) * pdfZoom
+                            : 600 * pdfZoom
+                        }
                         renderTextLayer={true}
                         renderAnnotationLayer={true}
                       />
