@@ -141,7 +141,8 @@ function FindingsSidebar({
   downgrades,
   downgradeRevenueLost,
   selectedEvidenceId,
-  onJump,
+  onSelectNonPci,
+  onSelectDowngrade,
 }: {
   merchant?: string;
   statementMonth?: string;
@@ -150,7 +151,11 @@ function FindingsSidebar({
   downgrades: DowngradeRow[];
   downgradeRevenueLost: number;
   selectedEvidenceId: string | null;
-  onJump: (ref: EvidenceRef, id?: string) => void;
+  // Sidebar clicks pop up details instead of moving the PDF; the
+  // detail dialogs themselves have a "Jump to evidence" button for
+  // when the auditor actually wants to navigate.
+  onSelectNonPci: (row: NonPciRow) => void;
+  onSelectDowngrade: (row: DowngradeRow) => void;
 }) {
   const totalCount = nonPci.length + downgrades.length;
   return (
@@ -182,7 +187,7 @@ function FindingsSidebar({
                 <button
                   key={r.id}
                   type="button"
-                  onClick={() => onJump(r.ref, r.id)}
+                  onClick={() => onSelectNonPci(r)}
                   className={`w-full text-left px-4 py-2 hover:bg-background transition-colors ${
                     selectedEvidenceId === r.id ? "bg-background border-l-2 border-red-500" : ""
                   }`}
@@ -211,7 +216,7 @@ function FindingsSidebar({
                 <button
                   key={r.id}
                   type="button"
-                  onClick={() => onJump(r.ref, r.id)}
+                  onClick={() => onSelectDowngrade(r)}
                   className={`w-full text-left px-4 py-2 hover:bg-background transition-colors ${
                     selectedEvidenceId === r.id ? "bg-background border-l-2 border-yellow-500" : ""
                   }`}
@@ -267,6 +272,9 @@ export default function Dashboard() {
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const [numPages, setNumPages] = useState<number>(1);
   const [selectedDowngrade, setSelectedDowngrade] = useState<DowngradeRow | null>(null);
+  // Non-PCI counterpart of selectedDowngrade — opened from the sidebar
+  // so the auditor can review the row without scrolling the PDF away.
+  const [selectedNonPci, setSelectedNonPci] = useState<NonPciRow | null>(null);
   const pdfContainerRef = useRef<HTMLDivElement>(null);
   // Live container width feeds into <Page width> so the page renders at
   // the readable "fit-to-card-width" size. ResizeObserver below.
@@ -1302,7 +1310,8 @@ export default function Dashboard() {
               downgrades={downgrades}
               downgradeRevenueLost={downgradeRollup.revenueLost}
               selectedEvidenceId={selectedEvidenceId}
-              onJump={(ref, id) => jumpToEvidence(ref, id)}
+              onSelectNonPci={setSelectedNonPci}
+              onSelectDowngrade={setSelectedDowngrade}
             />
           )}
           <Card
@@ -2088,6 +2097,79 @@ export default function Dashboard() {
                   variant="outline"
                   className="flex-1"
                   onClick={() => setSelectedDowngrade(null)}
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Non-PCI Detail Modal — companion to the Downgrade modal above.
+          Opens from the full-screen sidebar so the auditor can review
+          the row without scrolling the PDF away from where they are. */}
+      <Dialog open={!!selectedNonPci} onOpenChange={(open) => !open && setSelectedNonPci(null)}>
+        <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-md">
+          <DialogHeader>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-red-500/10 text-red-600 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <DialogTitle className="text-base">Non-PCI Fee Detail</DialogTitle>
+                <DialogDescription className="text-xs">
+                  Page {selectedNonPci?.ref.page}
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          {selectedNonPci && (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-border bg-secondary/10 p-3">
+                <p className="text-[11px] text-muted-foreground font-medium">Raw line</p>
+                <p className="text-sm font-mono mt-1 break-words">{selectedNonPci.raw}</p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="rounded-lg border border-border bg-secondary/10 p-3">
+                  <p className="text-[11px] text-muted-foreground">Fee charged</p>
+                  <p className="font-mono text-sm mt-1 text-red-600">{selectedNonPci.amount}</p>
+                </div>
+                {selectedNonPci.status && (
+                  <div className="rounded-lg border border-border bg-secondary/10 p-3">
+                    <p className="text-[11px] text-muted-foreground">Status</p>
+                    <p className="text-sm mt-1">{selectedNonPci.status}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-border bg-red-500/5 p-3">
+                <p className="text-[11px] text-muted-foreground font-medium">Recommended action</p>
+                <p className="text-xs mt-1">
+                  Complete the PCI SAQ + attestation, then request a refund for fees charged in recent months.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    jumpToEvidence(selectedNonPci.ref, selectedNonPci.id);
+                    setSelectedNonPci(null);
+                  }}
+                >
+                  <FileText className="w-3.5 h-3.5 mr-1.5" />
+                  Jump to evidence
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setSelectedNonPci(null)}
                 >
                   Close
                 </Button>
