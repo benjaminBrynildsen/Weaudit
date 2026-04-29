@@ -533,19 +533,42 @@ export default function BulkAudit() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <p className="font-medium text-sm truncate">{entry.fileName}</p>
-                      <Badge variant="outline" className={statusColor(entry.status)}>
-                        {statusLabel(entry.status)}
-                      </Badge>
-                      {entry.auditId && reviewedAudits.has(entry.auditId) && (
-                        <Badge
-                          variant="outline"
-                          className="text-emerald-700 bg-emerald-500/10 border-emerald-500/20"
-                          title="You've reviewed this audit in the workspace"
-                        >
-                          <CheckCircle2 className="w-3 h-3 mr-1" />
-                          Reviewed
-                        </Badge>
-                      )}
+                      {(() => {
+                        const isReviewed = entry.auditId && reviewedAudits.has(entry.auditId);
+                        // Once an audit is reviewed, "Needs Review" is
+                        // moot — the auditor has already taken a look.
+                        // Hide the status badge in that case so the
+                        // green Reviewed pill stands alone.
+                        if (isReviewed && entry.status === "needs_review") {
+                          return (
+                            <Badge
+                              variant="outline"
+                              className="text-emerald-700 bg-emerald-500/10 border-emerald-500/20"
+                              title="You've reviewed this audit in the workspace"
+                            >
+                              <CheckCircle2 className="w-3 h-3 mr-1" />
+                              Reviewed
+                            </Badge>
+                          );
+                        }
+                        return (
+                          <>
+                            <Badge variant="outline" className={statusColor(entry.status)}>
+                              {statusLabel(entry.status)}
+                            </Badge>
+                            {isReviewed && (
+                              <Badge
+                                variant="outline"
+                                className="text-emerald-700 bg-emerald-500/10 border-emerald-500/20"
+                                title="You've reviewed this audit in the workspace"
+                              >
+                                <CheckCircle2 className="w-3 h-3 mr-1" />
+                                Reviewed
+                              </Badge>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                     <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
                       <span>{(entry.fileSize / 1024).toFixed(0)} KB</span>
