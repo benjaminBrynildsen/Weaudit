@@ -15,6 +15,7 @@ import Review from "./pages/Review";
 import Report from "@/pages/Report";
 import Companies from "@/pages/Companies";
 import BulkAudit from "@/pages/BulkAudit";
+import Demos from "@/pages/Demos";
 import { useAuth } from "@/hooks/useAuth";
 
 function Protected({ children }: { children: ReactNode }) {
@@ -63,6 +64,9 @@ function Router() {
       </Route>
       <Route path="/settings">
         <Protected><Settings /></Protected>
+      </Route>
+      <Route path="/demos">
+        <Protected><Demos /></Protected>
       </Route>
       <Route component={NotFound} />
     </Switch>

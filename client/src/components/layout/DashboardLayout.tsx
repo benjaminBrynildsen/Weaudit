@@ -9,6 +9,7 @@ import {
   Building2,
   CalendarClock,
   BarChart3,
+  PlayCircle,
   Settings,
   LogOut,
   Menu,
@@ -67,6 +68,7 @@ function Sidebar({ collapsed }: SidebarProps) {
     { icon: CalendarClock, label: "History", href: "/history" },
     { icon: Building2, label: "Companies", href: "/companies" },
     { icon: BarChart3, label: "Reports", href: "/reports" },
+    { icon: PlayCircle, label: "Demos", href: "/demos" },
     { icon: Settings, label: "Settings", href: "/settings" },
     { icon: AlertTriangle, label: "Admin Database", href: "/review" },
   ];
