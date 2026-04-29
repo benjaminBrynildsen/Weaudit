@@ -36,7 +36,13 @@ type BulkFileStatus = "queued" | "uploading" | "scanning" | "complete" | "needs_
 
 type BulkFileEntry = {
   id: string;
-  file: File;
+  // Optional: only present for files added during this session. When
+  // we hydrate the queue from localStorage after the auditor reviews
+  // an audit and comes back, we lose the underlying File but keep its
+  // metadata so the row still renders correctly.
+  file?: File;
+  fileName: string;
+  fileSize: number;
   status: BulkFileStatus;
   progress: number;
   auditId?: string;
@@ -49,6 +55,13 @@ type BulkFileEntry = {
   companyMatched?: boolean;
   error?: string;
 };
+
+// localStorage keys — the bulk queue persists across navigation so
+// users can dive into a single-audit review and come back without
+// losing their place. `reviewed-audits` is a Set of auditIds the
+// user has hit "Mark reviewed" on inside the workspace.
+const BULK_STATE_KEY = "weaudit:bulk-state";
+const REVIEWED_AUDITS_KEY = "weaudit:reviewed-audits";
 
 function uid() {
   return Math.random().toString(16).slice(2);
@@ -89,7 +102,59 @@ function StatusIcon({ status }: { status: BulkFileStatus }) {
 
 export default function BulkAudit() {
   const [isDragging, setIsDragging] = useState(false);
-  const [entries, setEntries] = useState<BulkFileEntry[]>([]);
+  const [entries, setEntries] = useState<BulkFileEntry[]>(() => {
+    // Hydrate from the previous session if the auditor came back from
+    // a workspace review. We strip the underlying File on serialize
+    // (Files don't survive JSON), so re-runs of in-flight items would
+    // need re-uploading; everything past "scanning" status carries on
+    // fine without it.
+    if (typeof window === "undefined") return [];
+    const raw = window.localStorage.getItem(BULK_STATE_KEY);
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw) as Array<Omit<BulkFileEntry, "file">>;
+      return parsed.map((e) => ({ ...e }));
+    } catch {
+      return [];
+    }
+  });
+  const [reviewedAudits, setReviewedAudits] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      const raw = window.localStorage.getItem(REVIEWED_AUDITS_KEY);
+      return new Set<string>(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch {
+      return new Set<string>();
+    }
+  });
+
+  // Persist queue + reviewed set whenever they change.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    // File objects are not JSON-serializable; strip them before saving.
+    const serializable = entries.map(({ file: _file, ...rest }) => rest);
+    window.localStorage.setItem(BULK_STATE_KEY, JSON.stringify(serializable));
+  }, [entries]);
+
+  // Re-read reviewed set whenever the tab regains focus — covers the
+  // case where the workspace marks an audit reviewed and then sends
+  // the user back here.
+  useEffect(() => {
+    const refresh = () => {
+      try {
+        const raw = window.localStorage.getItem(REVIEWED_AUDITS_KEY);
+        setReviewedAudits(new Set<string>(raw ? (JSON.parse(raw) as string[]) : []));
+      } catch {
+        // ignore
+      }
+    };
+    window.addEventListener("focus", refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("storage", refresh);
+    };
+  }, []);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const [, setLocation] = useLocation();
@@ -145,6 +210,8 @@ export default function BulkAudit() {
       const newEntries: BulkFileEntry[] = valid.map((f) => ({
         id: uid(),
         file: f,
+        fileName: f.name,
+        fileSize: f.size,
         status: "queued" as BulkFileStatus,
         progress: 0,
       }));
@@ -198,6 +265,12 @@ export default function BulkAudit() {
       );
 
       try {
+        if (!entry.file) {
+          // Hydrated from a previous session — File blob is gone.
+          // Skip rather than fail, leaving the row in its persisted
+          // state.
+          continue;
+        }
         // Upload via single-file endpoint
         const formData = new FormData();
         formData.append("file", entry.file);
@@ -402,6 +475,17 @@ export default function BulkAudit() {
               <div className="flex items-center gap-3">
                 <h2 className="font-semibold">Audit Queue</h2>
                 <Badge variant="outline">{entries.length} file{entries.length !== 1 ? "s" : ""}</Badge>
+                {(() => {
+                  const reviewedCount = entries.filter(
+                    (e) => e.auditId && reviewedAudits.has(e.auditId),
+                  ).length;
+                  return reviewedCount > 0 ? (
+                    <Badge variant="outline" className="text-emerald-700 bg-emerald-500/10 border-emerald-500/20">
+                      <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                      {reviewedCount} reviewed
+                    </Badge>
+                  ) : null;
+                })()}
               </div>
               <div className="flex items-center gap-2">
                 {completedFiles > 0 && !isRunning && (
@@ -448,13 +532,23 @@ export default function BulkAudit() {
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className="font-medium text-sm truncate">{entry.file.name}</p>
+                      <p className="font-medium text-sm truncate">{entry.fileName}</p>
                       <Badge variant="outline" className={statusColor(entry.status)}>
                         {statusLabel(entry.status)}
                       </Badge>
+                      {entry.auditId && reviewedAudits.has(entry.auditId) && (
+                        <Badge
+                          variant="outline"
+                          className="text-emerald-700 bg-emerald-500/10 border-emerald-500/20"
+                          title="You've reviewed this audit in the workspace"
+                        >
+                          <CheckCircle2 className="w-3 h-3 mr-1" />
+                          Reviewed
+                        </Badge>
+                      )}
                     </div>
                     <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
-                      <span>{(entry.file.size / 1024).toFixed(0)} KB</span>
+                      <span>{(entry.fileSize / 1024).toFixed(0)} KB</span>
                       {entry.merchant && (
                         <>
                           <span className="text-border">|</span>
@@ -529,9 +623,11 @@ export default function BulkAudit() {
                           e.stopPropagation();
                           // Open the same workspace-with-sidebar the
                           // single-audit dashboard uses, in full-screen
-                          // mode, bound to this audit. Browser back
-                          // returns to the bulk queue.
-                          setLocation(`/dashboard?auditId=${entry.auditId}&fullscreen=1`);
+                          // mode, bound to this audit. `from=bulk`
+                          // tells the workspace to render a "Mark
+                          // reviewed & back" button instead of just an
+                          // exit-fullscreen toggle.
+                          setLocation(`/dashboard?auditId=${entry.auditId}&fullscreen=1&from=bulk`);
                         }}
                       >
                         <Sparkles className="w-3.5 h-3.5 mr-1.5" />
@@ -562,7 +658,7 @@ export default function BulkAudit() {
       <AddCompanyDialog
         open={!!addCompanyForEntry}
         onOpenChange={(o) => { if (!o) setAddCompanyForEntry(null); }}
-        defaultName={addCompanyForEntry?.merchant || addCompanyForEntry?.file.name.replace(/\.[^.]+$/, "") || ""}
+        defaultName={addCompanyForEntry?.merchant || addCompanyForEntry?.fileName.replace(/\.[^.]+$/, "") || ""}
         defaultProcessor={addCompanyForEntry?.processorDetected}
         fromAuditId={addCompanyForEntry?.auditId}
         onCreated={() => {

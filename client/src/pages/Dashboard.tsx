@@ -753,6 +753,11 @@ export default function Dashboard() {
   // sidebar of findings so the auditor can click through them without
   // leaving the page.
   const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
+  // True when the workspace was opened from the Bulk Audit queue.
+  // Surfaces a "Mark reviewed & back" button and changes Esc/Minimize
+  // to navigate back to /bulk-audit instead of just closing the
+  // overlay. Set from a `from=bulk` URL param on mount.
+  const [returnToBulk, setReturnToBulk] = useState(false);
   const [showCelebration, setShowCelebration] = useState<boolean>(false);
   const celebratedAuditRef = useRef<string | null>(null);
 
@@ -941,11 +946,12 @@ export default function Dashboard() {
       } else if (e.key === "Escape" && isFullScreen) {
         e.preventDefault();
         setIsFullScreen(false);
+        if (returnToBulk) window.location.href = "/bulk-audit";
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pdfBlobUrl, numPages, isFullScreen]);
+  }, [pdfBlobUrl, numPages, isFullScreen, returnToBulk]);
 
   // While full-screen is open, freeze the body scroll so the page
   // behind the overlay can't be scrolled by accident.
@@ -966,13 +972,36 @@ export default function Dashboard() {
     const params = new URLSearchParams(window.location.search);
     const auditIdFromUrl = params.get("auditId");
     const fullscreenFromUrl = params.get("fullscreen") === "1";
+    const fromBulk = params.get("from") === "bulk";
     if (auditIdFromUrl) {
       setCurrentAuditId(auditIdFromUrl);
       if (fullscreenFromUrl) setIsFullScreen(true);
+      if (fromBulk) setReturnToBulk(true);
     }
     // intentional: only run on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Mark the current audit as reviewed and return to the Bulk Audit
+  // queue. Persists to localStorage so BulkAudit shows a reviewed
+  // badge on the matching row when it remounts.
+  const markReviewedAndExit = useCallback(() => {
+    if (currentAuditId) {
+      try {
+        const raw = window.localStorage.getItem("weaudit:reviewed-audits");
+        const set = new Set<string>(raw ? (JSON.parse(raw) as string[]) : []);
+        set.add(currentAuditId);
+        window.localStorage.setItem(
+          "weaudit:reviewed-audits",
+          JSON.stringify(Array.from(set)),
+        );
+      } catch {
+        // ignore — UX still works without persistence
+      }
+    }
+    setIsFullScreen(false);
+    window.location.href = "/bulk-audit";
+  }, [currentAuditId]);
 
   // Once an externally-loaded audit's data arrives, fetch the source
   // statement PDF so the viewer has something to render. Mirrors the
@@ -1974,14 +2003,41 @@ export default function Dashboard() {
                 <Badge data-testid="badge-page" variant="outline" className="font-mono text-xs">
                   Page {selectedPage} / {numPages}
                 </Badge>
+                {isFullScreen && returnToBulk && (
+                  <Button
+                    data-testid="button-mark-reviewed"
+                    size="sm"
+                    variant="default"
+                    className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white"
+                    onClick={markReviewedAndExit}
+                    title="Mark this audit as reviewed and return to the bulk queue"
+                  >
+                    <CheckCircle2 className="w-4 h-4 mr-1.5" />
+                    Mark reviewed
+                  </Button>
+                )}
                 <Button
                   data-testid="button-toggle-fullscreen"
                   size="sm"
                   variant="outline"
                   className="h-8 w-8 p-0"
-                  onClick={() => setIsFullScreen((v) => !v)}
+                  onClick={() => {
+                    if (isFullScreen && returnToBulk) {
+                      // Came from bulk — back to the queue.
+                      setIsFullScreen(false);
+                      window.location.href = "/bulk-audit";
+                    } else {
+                      setIsFullScreen((v) => !v);
+                    }
+                  }}
                   disabled={!pdfBlobUrl}
-                  title={isFullScreen ? "Exit full screen (Esc)" : "Full screen"}
+                  title={
+                    isFullScreen
+                      ? returnToBulk
+                        ? "Back to bulk queue (Esc)"
+                        : "Exit full screen (Esc)"
+                      : "Full screen"
+                  }
                 >
                   {isFullScreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
                 </Button>
