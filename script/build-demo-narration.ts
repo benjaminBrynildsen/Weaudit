@@ -16,31 +16,44 @@ const SOURCE_MP4 = "/home/wolfgang/Weaudit/client/public/demos/workspace-walkthr
 const OUTPUT_MP4 = SOURCE_MP4; // overwrite in place at the end
 const TMP_DIR = "/tmp/weaudit-demo";
 
-// 1:17 walkthrough — narration paced for ~71 seconds with 6s of head/tail
-// breathing room. Grok TTS @ ~150 wpm: ~177 words target.
-const NARRATION = `Welcome to Weaudit. I'll walk you through the auditor workspace.
+// Walkthrough narration broken into chunks so we can drop measured
+// silence pauses between them. Two spots needed extra breathing room
+// because the on-screen action takes longer than the words: just
+// before "Click Review" (the auditor needs to see the bulk row
+// finish first) and just before "When you're done, hit Mark
+// Reviewed" (a beat for the workspace exit to register).
+type NarrationChunk = { text: string; pauseAfter: number };
+const NARRATION: NarrationChunk[] = [
+  {
+    text: "Welcome to Weaudit. I'll walk you through the auditor workspace.",
+    pauseAfter: 400,
+  },
+  {
+    text: "Drop multiple statements into the bulk audit page, and the engine starts processing them automatically. Each card lights up with the merchant, processor, and the count of findings the moment its scan finishes.",
+    pauseAfter: 1500,
+  },
+  {
+    text: "Click Review to open the full-screen workspace. The PDF fills your viewport with side-cushion arrows for paging. The left sidebar lists every Non-PCI fee and downgrade the engine detected, with running totals.",
+    pauseAfter: 800,
+  },
+  {
+    text: "Click any finding to see its details — raw line, volume, rate spread, revenue lost. The PDF stays exactly where you had it. You can delete findings the engine got wrong, or add downgrades it missed using a custom form.",
+    pauseAfter: 1500,
+  },
+  {
+    text: "When you're done, hit Mark Reviewed. You're back in the bulk queue, that audit is flagged green, and the next unreviewed one is at the top of your list.",
+    pauseAfter: 600,
+  },
+  {
+    text: "Cohesive, fast, and built for the way auditors actually work.",
+    pauseAfter: 0,
+  },
+];
 
-Drop multiple statements into the bulk audit page, and the engine starts processing them automatically. Each card lights up with the merchant, processor, and the count of findings the moment its scan finishes.
-
-Click Review to open the full-screen workspace. The PDF fills your viewport with side-cushion arrows for paging. The left sidebar lists every Non-PCI fee and downgrade the engine detected, with running totals.
-
-Click any finding to see its details — raw line, volume, rate spread, revenue lost. The PDF stays exactly where you had it. You can delete findings the engine got wrong, or add downgrades it missed using a custom form.
-
-When you're done, hit Mark Reviewed. You're back in the bulk queue, that audit is flagged green, and the next unreviewed one is at the top of your list.
-
-Cohesive, fast, and built for the way auditors actually work.`;
-
-const VOICE_ID = "eve"; // female Grok voice
+const VOICE_ID = "leo"; // Grok male voice
 const GROK_TTS_API = "https://api.x.ai/v1/tts";
 
-async function generateNarration(): Promise<string> {
-  const apiKey = process.env.XAI_API_KEY;
-  if (!apiKey) throw new Error("XAI_API_KEY not set");
-
-  fs.mkdirSync(TMP_DIR, { recursive: true });
-  const narrationPath = path.join(TMP_DIR, "narration.mp3");
-
-  console.log(`[grok-tts] generating narration (~${NARRATION.length} chars, voice="${VOICE_ID}")…`);
+async function ttsChunk(text: string, voiceId: string, apiKey: string): Promise<Buffer> {
   const res = await fetch(GROK_TTS_API, {
     method: "POST",
     headers: {
@@ -48,8 +61,8 @@ async function generateNarration(): Promise<string> {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      text: NARRATION,
-      voice_id: VOICE_ID,
+      text,
+      voice_id: voiceId,
       language: "en",
       output_format: { codec: "mp3", sample_rate: 24000, bit_rate: 128000 },
     }),
@@ -58,9 +71,63 @@ async function generateNarration(): Promise<string> {
     const detail = await res.text().catch(() => res.statusText);
     throw new Error(`Grok TTS error ${res.status}: ${detail}`);
   }
-  const buf = Buffer.from(await res.arrayBuffer());
-  fs.writeFileSync(narrationPath, buf);
-  console.log(`[grok-tts] wrote ${narrationPath} (${(buf.byteLength / 1024).toFixed(1)} KB)`);
+  return Buffer.from(await res.arrayBuffer());
+}
+
+async function generateNarration(): Promise<string> {
+  const apiKey = process.env.XAI_API_KEY;
+  if (!apiKey) throw new Error("XAI_API_KEY not set");
+
+  fs.mkdirSync(TMP_DIR, { recursive: true });
+
+  // Generate each chunk individually so we can splice silence
+  // between them, controlling the per-section pacing.
+  console.log(`[grok-tts] voice="${VOICE_ID}", ${NARRATION.length} chunk${NARRATION.length === 1 ? "" : "s"}…`);
+  const chunkFiles: string[] = [];
+  for (let i = 0; i < NARRATION.length; i++) {
+    const chunk = NARRATION[i];
+    const buf = await ttsChunk(chunk.text, VOICE_ID, apiKey);
+    const chunkMp3 = path.join(TMP_DIR, `chunk-${i}.mp3`);
+    fs.writeFileSync(chunkMp3, buf);
+    console.log(`  chunk ${i}: ${chunk.text.length} chars → ${(buf.byteLength / 1024).toFixed(1)} KB, pause=${chunk.pauseAfter}ms`);
+
+    // Render each chunk's mp3 + its pause silence into a single wav
+    // segment so the concat list is uniform.
+    const segWav = path.join(TMP_DIR, `seg-${i}.wav`);
+    if (chunk.pauseAfter > 0) {
+      execFileSync("ffmpeg", [
+        "-hide_banner", "-loglevel", "error", "-y",
+        "-i", chunkMp3,
+        "-f", "lavfi", "-t", (chunk.pauseAfter / 1000).toFixed(3),
+        "-i", "anullsrc=r=24000:cl=mono",
+        "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1[a]",
+        "-map", "[a]",
+        "-ar", "24000", "-ac", "1",
+        segWav,
+      ]);
+    } else {
+      execFileSync("ffmpeg", [
+        "-hide_banner", "-loglevel", "error", "-y",
+        "-i", chunkMp3,
+        "-ar", "24000", "-ac", "1",
+        segWav,
+      ]);
+    }
+    chunkFiles.push(segWav);
+  }
+
+  // Concat all segments into a single narration mp3.
+  const concatList = path.join(TMP_DIR, "concat.txt");
+  fs.writeFileSync(concatList, chunkFiles.map((f) => `file '${f}'`).join("\n"));
+  const narrationPath = path.join(TMP_DIR, "narration.mp3");
+  execFileSync("ffmpeg", [
+    "-hide_banner", "-loglevel", "error", "-y",
+    "-f", "concat", "-safe", "0",
+    "-i", concatList,
+    "-c:a", "libmp3lame", "-b:a", "128k",
+    narrationPath,
+  ]);
+  console.log(`[grok-tts] wrote ${narrationPath}`);
   return narrationPath;
 }
 
