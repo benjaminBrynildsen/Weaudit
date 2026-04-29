@@ -24,7 +24,7 @@ import {
   Files,
   Building2,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import type { AuditStatus } from "@/lib/api";
@@ -495,6 +495,19 @@ export default function BulkAudit() {
   const completedFiles = entries.filter((e) => e.status === "complete" || e.status === "needs_review").length;
   const queuedFiles = entries.filter((e) => e.status === "queued").length;
   const activeFiles = entries.filter((e) => e.status === "uploading" || e.status === "scanning").length;
+  // Render order: unreviewed audits float to the top so the auditor's
+  // remaining work is always at eye level. Within each group we keep
+  // insertion order so the bulk run reads chronologically.
+  const sortedEntries = useMemo(() => {
+    const indexed = entries.map((e, i) => ({ e, i }));
+    indexed.sort((a, b) => {
+      const aReviewed = a.e.auditId ? reviewedAudits.has(a.e.auditId) : false;
+      const bReviewed = b.e.auditId ? reviewedAudits.has(b.e.auditId) : false;
+      if (aReviewed !== bReviewed) return aReviewed ? 1 : -1;
+      return a.i - b.i;
+    });
+    return indexed.map((x) => x.e);
+  }, [entries, reviewedAudits]);
 
   return (
     <DashboardLayout>
@@ -635,7 +648,7 @@ export default function BulkAudit() {
 
             {/* File list */}
             <div className="divide-y divide-border">
-              {entries.map((entry) => (
+              {sortedEntries.map((entry) => (
                 <div
                   key={entry.id}
                   className={`px-4 py-3 flex items-center gap-4 transition-colors ${
@@ -651,42 +664,16 @@ export default function BulkAudit() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <p className="font-medium text-sm truncate">{entry.fileName}</p>
-                      {(() => {
-                        const isReviewed = entry.auditId && reviewedAudits.has(entry.auditId);
-                        // Once an audit is reviewed, "Needs Review" is
-                        // moot — the auditor has already taken a look.
-                        // Hide the status badge in that case so the
-                        // green Reviewed pill stands alone.
-                        if (isReviewed && entry.status === "needs_review") {
-                          return (
-                            <Badge
-                              variant="outline"
-                              className="text-emerald-700 bg-emerald-500/10 border-emerald-500/20"
-                              title="You've reviewed this audit in the workspace"
-                            >
-                              <CheckCircle2 className="w-3 h-3 mr-1" />
-                              Reviewed
-                            </Badge>
-                          );
-                        }
-                        return (
-                          <>
-                            <Badge variant="outline" className={statusColor(entry.status)}>
-                              {statusLabel(entry.status)}
-                            </Badge>
-                            {isReviewed && (
-                              <Badge
-                                variant="outline"
-                                className="text-emerald-700 bg-emerald-500/10 border-emerald-500/20"
-                                title="You've reviewed this audit in the workspace"
-                              >
-                                <CheckCircle2 className="w-3 h-3 mr-1" />
-                                Reviewed
-                              </Badge>
-                            )}
-                          </>
-                        );
-                      })()}
+                      {/* Once an audit is reviewed the Reviewed pill
+                          lives on the right, in place of the Review
+                          button — see below. The status pill here is
+                          suppressed in that case so the row reads
+                          cleanly. */}
+                      {!(entry.auditId && reviewedAudits.has(entry.auditId) && entry.status === "needs_review") && (
+                        <Badge variant="outline" className={statusColor(entry.status)}>
+                          {statusLabel(entry.status)}
+                        </Badge>
+                      )}
                     </div>
                     <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
                       <span>{(entry.fileSize / 1024).toFixed(0)} KB</span>
@@ -757,23 +744,46 @@ export default function BulkAudit() {
                       </Button>
                     )}
                     {(entry.status === "complete" || entry.status === "needs_review") && entry.auditId && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          // Open the same workspace-with-sidebar the
-                          // single-audit dashboard uses, in full-screen
-                          // mode, bound to this audit. `from=bulk`
-                          // tells the workspace to render a "Mark
-                          // reviewed & back" button instead of just an
-                          // exit-fullscreen toggle.
-                          setLocation(`/dashboard?auditId=${entry.auditId}&fullscreen=1&from=bulk`);
-                        }}
-                      >
-                        <Sparkles className="w-3.5 h-3.5 mr-1.5" />
-                        {entry.status === "needs_review" ? "Review" : "Findings"}
-                      </Button>
+                      (() => {
+                        const isReviewed = !!entry.auditId && reviewedAudits.has(entry.auditId);
+                        // Reviewed rows replace the Review button
+                        // with a green pill (still clickable so the
+                        // auditor can pop the workspace back open).
+                        if (isReviewed) {
+                          return (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-emerald-700 bg-emerald-500/10 border-emerald-500/20 hover:bg-emerald-500/15"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setLocation(`/dashboard?auditId=${entry.auditId}&fullscreen=1&from=bulk`);
+                              }}
+                              title="You've reviewed this — click to re-open"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                              Reviewed
+                            </Button>
+                          );
+                        }
+                        return (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              // Open the workspace + sidebar bound to
+                              // this audit. `from=bulk` makes the
+                              // workspace surface a "Mark reviewed &
+                              // back" action.
+                              setLocation(`/dashboard?auditId=${entry.auditId}&fullscreen=1&from=bulk`);
+                            }}
+                          >
+                            <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+                            {entry.status === "needs_review" ? "Review" : "Findings"}
+                          </Button>
+                        );
+                      })()
                     )}
                     {entry.status === "queued" && (
                       <Button
