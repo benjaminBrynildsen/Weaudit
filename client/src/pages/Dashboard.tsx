@@ -30,6 +30,8 @@ import {
   Flame,
   Highlighter,
   Loader2,
+  Maximize2,
+  Minimize2,
   Pause,
   Play,
   Search,
@@ -126,6 +128,118 @@ function fmtPct(n?: number) {
   return `${Math.round(n * 100)}%`;
 }
 
+/**
+ * Left-rail findings list shown in the workspace's full-screen mode.
+ * Same data the inline finding cards use; clicking a row jumps the
+ * viewer to that page.
+ */
+function FindingsSidebar({
+  merchant,
+  statementMonth,
+  nonPci,
+  nonPciTotal,
+  downgrades,
+  downgradeRevenueLost,
+  selectedEvidenceId,
+  onJump,
+}: {
+  merchant?: string;
+  statementMonth?: string;
+  nonPci: NonPciRow[];
+  nonPciTotal: number;
+  downgrades: DowngradeRow[];
+  downgradeRevenueLost: number;
+  selectedEvidenceId: string | null;
+  onJump: (ref: EvidenceRef, id?: string) => void;
+}) {
+  const totalCount = nonPci.length + downgrades.length;
+  return (
+    <aside className="w-72 shrink-0 border-r border-border bg-secondary/15 overflow-y-auto overscroll-contain">
+      <div className="p-4 border-b border-border bg-background/40 sticky top-0 backdrop-blur z-10">
+        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Auditing</p>
+        <p className="font-semibold truncate" title={merchant || ""}>
+          {merchant && merchant !== "—" ? merchant : "Untitled statement"}
+        </p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          {statementMonth && statementMonth !== "—" ? statementMonth : ""}
+          {totalCount > 0 ? `${statementMonth && statementMonth !== "—" ? " · " : ""}${totalCount} finding${totalCount !== 1 ? "s" : ""}` : ""}
+        </p>
+      </div>
+
+      {totalCount === 0 ? (
+        <div className="p-6 text-xs text-muted-foreground">
+          No findings detected yet. Run a scan to populate this list.
+        </div>
+      ) : (
+        <div className="divide-y divide-border/60">
+          {nonPci.length > 0 && (
+            <div>
+              <div className="px-4 py-2 flex items-center justify-between text-[11px] uppercase tracking-wide">
+                <span className="text-red-700 font-semibold">Non-PCI · {nonPci.length}</span>
+                <span className="font-mono text-red-700/80">${nonPciTotal.toFixed(2)}</span>
+              </div>
+              {nonPci.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => onJump(r.ref, r.id)}
+                  className={`w-full text-left px-4 py-2 hover:bg-background transition-colors ${
+                    selectedEvidenceId === r.id ? "bg-background border-l-2 border-red-500" : ""
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium truncate" title={r.raw}>
+                        {r.raw}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">p.{r.ref.page}</p>
+                    </div>
+                    <span className="text-xs font-mono shrink-0">{r.amount}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {downgrades.length > 0 && (
+            <div>
+              <div className="px-4 py-2 flex items-center justify-between text-[11px] uppercase tracking-wide">
+                <span className="text-yellow-700 font-semibold">Downgrades · {downgrades.length}</span>
+                <span className="font-mono text-yellow-700/80">${downgradeRevenueLost.toFixed(2)}</span>
+              </div>
+              {downgrades.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => onJump(r.ref, r.id)}
+                  className={`w-full text-left px-4 py-2 hover:bg-background transition-colors ${
+                    selectedEvidenceId === r.id ? "bg-background border-l-2 border-yellow-500" : ""
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium truncate" title={r.raw}>
+                        {r.raw}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        p.{r.ref.page}
+                        {r.downgradeRate ? ` · ${r.downgradeRate}` : ""}
+                      </p>
+                    </div>
+                    <span className="text-xs font-mono shrink-0 text-yellow-800">
+                      {r.revenueLost ?? "—"}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </aside>
+  );
+}
+
 function parseMoney(input?: string) {
   if (!input) return 0;
   const s = input.replace(/[^0-9.-]/g, "");
@@ -161,6 +275,10 @@ export default function Dashboard() {
   // page fills the workspace horizontally; goes 0.6×–2.0× via the zoom
   // buttons in the workspace header.
   const [pdfZoom, setPdfZoom] = useState<number>(1);
+  // Full-screen workspace mode — fills the viewport with PDF + a left
+  // sidebar of findings so the auditor can click through them without
+  // leaving the page.
+  const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
   const [showCelebration, setShowCelebration] = useState<boolean>(false);
   const celebratedAuditRef = useRef<string | null>(null);
 
@@ -330,8 +448,9 @@ export default function Dashboard() {
     return () => ro.disconnect();
   }, [pdfBlobUrl]);
 
-  // Keyboard nav: ←/→ flip pages while the viewer is mounted. Skip if
-  // focus is in a text input so we don't hijack typing.
+  // Keyboard nav: ←/→ flip pages while the viewer is mounted, ESC exits
+  // full-screen. Skip if focus is in a text input so we don't hijack
+  // typing.
   useEffect(() => {
     if (!pdfBlobUrl) return;
     const onKey = (e: KeyboardEvent) => {
@@ -344,11 +463,25 @@ export default function Dashboard() {
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
         setSelectedPage((p) => Math.min(numPages, p + 1));
+      } else if (e.key === "Escape" && isFullScreen) {
+        e.preventDefault();
+        setIsFullScreen(false);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pdfBlobUrl, numPages]);
+  }, [pdfBlobUrl, numPages, isFullScreen]);
+
+  // While full-screen is open, freeze the body scroll so the page
+  // behind the overlay can't be scrolled by accident.
+  useEffect(() => {
+    if (!isFullScreen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [isFullScreen]);
 
   function resetScan() {
     setPhase("idle");
@@ -1147,8 +1280,38 @@ export default function Dashboard() {
             sized by container WIDTH so it stays large and readable.
             Vertical overflow scrolls inside the card. Page navigation
             shows up as side-cushion arrow buttons (←/→ keyboard
-            shortcuts also work) and zoom is auditor-controlled. */}
-        <Card className="overflow-hidden shadow-sm flex flex-col h-[calc(100vh-5rem)] min-h-[640px]">
+            shortcuts also work) and zoom is auditor-controlled.
+
+            In full-screen mode the same workspace renders inside a
+            fixed overlay with a left findings sidebar so the auditor
+            can click straight from a finding to its page without
+            leaving the workspace. */}
+        <div
+          className={
+            isFullScreen
+              ? "fixed inset-0 z-50 bg-background flex"
+              : "contents"
+          }
+        >
+          {isFullScreen && (
+            <FindingsSidebar
+              merchant={fields.company_dba?.value}
+              statementMonth={fields.statement_period?.value}
+              nonPci={nonPci}
+              nonPciTotal={nonPciTotal}
+              downgrades={downgrades}
+              downgradeRevenueLost={downgradeRollup.revenueLost}
+              selectedEvidenceId={selectedEvidenceId}
+              onJump={(ref, id) => jumpToEvidence(ref, id)}
+            />
+          )}
+          <Card
+            className={
+              isFullScreen
+                ? "overflow-hidden shadow-sm flex flex-col flex-1 min-w-0 h-full rounded-none border-l border-r-0 border-t-0 border-b-0"
+                : "overflow-hidden shadow-sm flex flex-col h-[calc(100vh-5rem)] min-h-[640px]"
+            }
+          >
           <div className="px-4 sm:px-5 py-3 border-b border-border bg-secondary/10 shrink-0">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
               <div className="min-w-0">
@@ -1199,6 +1362,17 @@ export default function Dashboard() {
                 <Badge data-testid="badge-page" variant="outline" className="font-mono text-xs">
                   Page {selectedPage} / {numPages}
                 </Badge>
+                <Button
+                  data-testid="button-toggle-fullscreen"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 w-8 p-0"
+                  onClick={() => setIsFullScreen((v) => !v)}
+                  disabled={!pdfBlobUrl}
+                  title={isFullScreen ? "Exit full screen (Esc)" : "Full screen"}
+                >
+                  {isFullScreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                </Button>
               </div>
             </div>
           </div>
@@ -1346,6 +1520,7 @@ export default function Dashboard() {
             </div>
           </div>
         </Card>
+        </div>
 
         {/* Live Extracted Data — below the PDF viewer */}
         <Card className="overflow-hidden shadow-sm">
