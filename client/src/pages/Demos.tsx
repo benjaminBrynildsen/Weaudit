@@ -22,10 +22,17 @@ type Demo = {
 const DEMOS: Demo[] = [
   {
     id: "workspace-walkthrough",
-    title: "Workspace walkthrough",
+    title: "Workspace walkthrough — punch-in cuts",
     description:
-      "A tour of the auditor workspace — bulk upload, full-screen review, sidebar findings, add / delete custom downgrades, and the round-trip back to the bulk queue.",
+      "A tour of the auditor workspace with cinematic zoom-ins on click moments (Anthropic-demo style). Same flow as the version below, but the camera pushes in for ~3 seconds at each click for emphasis.",
     src: "/demos/workspace-walkthrough.mp4",
+  },
+  {
+    id: "workspace-walkthrough-no-zoom",
+    title: "Workspace walkthrough — narration only",
+    description:
+      "Same narration over the original screen recording, no zoom effects. Use this version if you'd rather watch the full 1080p framing the whole way through.",
+    src: "/demos/workspace-walkthrough-no-zoom.mp4",
   },
 ];
 
