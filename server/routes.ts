@@ -560,10 +560,18 @@ export async function registerRoutes(
       // Amanda recorded for that row in her audit PDF; otherwise we default
       // to 1 (one finding row = one transaction on a raw statement).
       const sevRank = (s: string) => s === "High" ? 0 : s === "Medium" ? 1 : 2;
-      const downgradeGroups = new Map<string, { count: number; volume: number; rate: string; revenueLost: number; reasons: string; severity: string }>();
+      type DowngradeGroup = {
+        count: number;
+        volume: number;
+        chargedRate: number | null;
+        correctedRate: number | null;
+        revenueLost: number;
+        reasons: string;
+        severity: string;
+      };
+      const downgradeGroups = new Map<string, DowngradeGroup>();
       for (const f of downgradeFindings) {
         const key = f.title;
-        const rateSpread = (f.rate && f.targetRate) ? Math.max(0, f.rate - f.targetRate) : 0;
         const txCount = f.transactionCount ?? 1;
         const existing = downgradeGroups.get(key);
         if (existing) {
@@ -575,13 +583,15 @@ export async function registerRoutes(
           downgradeGroups.set(key, {
             count: txCount,
             volume: f.amount,
-            rate: rateSpread > 0 ? `+${rateSpread.toFixed(2)}%` : "—",
+            chargedRate: f.rate || null,
+            correctedRate: f.targetRate ?? null,
             revenueLost: f.spread || 0,
             reasons: f.reason,
             severity: f.severity,
           });
         }
       }
+      const fmtRate = (r: number | null) => (r != null && r > 0 ? `${r.toFixed(2)}%` : "—");
 
       const statusMap: Record<string, "Complete" | "Needs Review" | "In Progress"> = {
         complete: "Complete",
@@ -603,6 +613,7 @@ export async function registerRoutes(
           ? audit.processorDetected
           : audit.processor,
         mid: audit.mid,
+        gatewayLevel: audit.gatewayLevel,
         volume: adjustedVolume > 0 ? money(adjustedVolume) : "$0.00",
         totalFees: adjustedFees > 0 ? money(adjustedFees) : "$0.00",
         amexVolume: audit.amexVolume ? money(audit.amexVolume) : undefined,
@@ -630,15 +641,22 @@ export async function registerRoutes(
                 reasons: "Fee classified as non-PCI / compliance unrelated",
               }]
             : [],
-          downgrades: Array.from(downgradeGroups.entries()).map(([label, g]) => ({
-            label,
-            count: g.count,
-            volume: money(g.volume),
-            rate: g.rate,
-            revenueLost: money(g.revenueLost),
-            reasons: g.reasons,
-            severity: g.severity,
-          })),
+          downgrades: Array.from(downgradeGroups.entries()).map(([label, g]) => {
+            const spread = g.chargedRate != null && g.correctedRate != null
+              ? Math.max(0, g.chargedRate - g.correctedRate)
+              : 0;
+            return {
+              label,
+              count: g.count,
+              volume: money(g.volume),
+              rate: spread > 0 ? `+${spread.toFixed(2)}%` : "—",
+              chargedRate: fmtRate(g.chargedRate),
+              correctedRate: fmtRate(g.correctedRate),
+              revenueLost: money(g.revenueLost),
+              reasons: g.reasons,
+              severity: g.severity,
+            };
+          }),
           serviceCharges: serviceChargeFindings.map((f) => ({
             label: f.title,
             rawLine: f.rawLine,

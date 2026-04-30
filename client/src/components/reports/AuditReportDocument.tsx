@@ -5,6 +5,8 @@ type FindingRow = {
   count: number;
   volume: string;
   rate: string;
+  chargedRate?: string;
+  correctedRate?: string;
   revenueLost: string;
   reasons: string;
   severity?: "High" | "Medium" | "Low";
@@ -56,556 +58,350 @@ type AuditReportData = {
     serviceCharges?: ServiceChargeRow[];
     interchange?: InterchangeRow[];
   };
+  gatewayLevel?: "II" | "III";
   notes?: string;
 };
 
-/* ── Color palette ── */
+/* ── Color palette — mirrors the reference (clean white + lime green table headers) ── */
 const C = {
-  navy: "#0A0F1E",
-  navyMid: "#141B2D",
-  navyLight: "#1E2A3E",
-  slate: "#64748B",
-  slateLight: "#94A3B8",
-  border: "#E2E8F0",
-  borderLight: "#F1F5F9",
-  bg: "#FAFBFC",
   white: "#FFFFFF",
-  text: "#0F172A",
-  textMuted: "#475569",
-  green: "#059669",
-  greenBg: "#ECFDF5",
-  greenBorder: "#A7F3D0",
-  red: "#DC2626",
-  redBg: "#FEF2F2",
-  redBorder: "#FECACA",
-  amber: "#D97706",
-  amberBg: "#FFFBEB",
-  amberBorder: "#FDE68A",
-  blue: "#2563EB",
-  blueBg: "#EFF6FF",
-  blueBorder: "#BFDBFE",
+  text: "#111827",
+  textMuted: "#4B5563",
+  textFaint: "#6B7280",
+  divider: "#E5E7EB",
+  divLight: "#F3F4F6",
+  green: "#9DBE5A",     // table header green from the reference
+  greenDark: "#6E8C2E",
+  red: "#B91C1C",
+  redBg: "#B91C1C",     // solid red banner
+  brandPurple: "#2E1065",
+  brandYellow: "#EAB308",
+  amber: "#B45309",
+  blue: "#1D4ED8",
 };
 
 const styles = StyleSheet.create({
   page: {
-    paddingTop: 0,
-    paddingBottom: 32,
-    paddingHorizontal: 0,
+    paddingTop: 28,
+    paddingBottom: 28,
+    paddingHorizontal: 36,
     fontSize: 9,
     fontFamily: "Helvetica",
     color: C.text,
-    backgroundColor: C.bg,
+    backgroundColor: C.white,
   },
 
   /* ── Header ── */
-  headerWrap: {
-    backgroundColor: C.navy,
-    paddingTop: 28,
-    paddingBottom: 22,
-    paddingHorizontal: 36,
-  },
-  headerTop: {
+  headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    marginBottom: 14,
   },
-  brandBlock: {},
-  brand: {
-    fontSize: 20,
-    fontWeight: 700,
+  logoBlock: {
+    width: 130,
+  },
+  logoBox: {
+    backgroundColor: C.brandPurple,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    width: 86,
+  },
+  logoLine1: {
     color: C.white,
-    letterSpacing: -0.5,
-  },
-  brandSub: {
-    fontSize: 8,
-    color: C.slateLight,
-    marginTop: 2,
-    letterSpacing: 1.5,
-    textTransform: "uppercase",
-  },
-  headerMeta: {
-    alignItems: "flex-end",
-  },
-  headerMetaText: {
-    fontSize: 8,
-    color: C.slateLight,
-    marginBottom: 2,
-  },
-  headerMetaValue: {
-    fontSize: 9,
-    color: C.white,
-    fontWeight: 700,
-  },
-  headerDivider: {
-    height: 1,
-    backgroundColor: C.navyLight,
-    marginBottom: 12,
-  },
-  merchantName: {
     fontSize: 14,
     fontWeight: 700,
-    color: C.white,
-    marginBottom: 4,
+    letterSpacing: -0.3,
   },
-  merchantDetails: {
-    fontSize: 8,
-    color: C.slateLight,
-    lineHeight: 1.5,
-  },
-  pillRow: {
-    flexDirection: "row",
-    gap: 6,
-    marginTop: 12,
-  },
-  pill: {
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 100,
-    backgroundColor: C.navyLight,
-    fontSize: 8,
-    color: C.white,
-  },
-  pillAccent: {
-    backgroundColor: C.blue,
-  },
-
-  /* ── Body ── */
-  body: {
-    paddingHorizontal: 36,
-    paddingTop: 20,
-  },
-
-  /* ── Summary cards ── */
-  summaryRow: {
-    flexDirection: "row",
-    gap: 10,
-    marginBottom: 12,
-  },
-  summaryCard: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 8,
-    padding: 14,
-    backgroundColor: C.white,
-  },
-  summaryCardAccent: {
-    borderColor: C.greenBorder,
-    backgroundColor: C.greenBg,
-  },
-  summaryCardWarn: {
-    borderColor: C.redBorder,
-    backgroundColor: C.redBg,
-  },
-  summaryLabel: {
-    fontSize: 8,
-    color: C.textMuted,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginBottom: 4,
-  },
-  summaryValue: {
+  logoLine2: {
+    color: C.brandYellow,
     fontSize: 18,
     fontWeight: 700,
+    letterSpacing: -0.5,
+    marginTop: -2,
   },
-  summaryValueGreen: { color: C.green },
-  summaryValueRed: { color: C.red },
+  logoTagline: {
+    fontSize: 7,
+    color: C.brandYellow,
+    marginTop: 2,
+  },
+  logoSubtitle: {
+    fontSize: 7,
+    color: C.textFaint,
+    marginTop: 6,
+  },
 
-  /* ── Stats row ── */
-  statsRow: {
+  metaBlock: {
+    width: 240,
+  },
+  metaRow: {
     flexDirection: "row",
-    gap: 10,
-    marginBottom: 16,
+    justifyContent: "space-between",
+    paddingVertical: 2,
   },
-  statBox: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 8,
-    padding: 10,
-    backgroundColor: C.white,
-    alignItems: "center",
-  },
-  statNumber: {
-    fontSize: 16,
-    fontWeight: 700,
+  metaLabel: {
+    fontSize: 9,
     color: C.text,
   },
-  statLabel: {
-    fontSize: 7,
-    color: C.textMuted,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
+  metaValue: {
+    fontSize: 10,
+    color: C.text,
+    fontWeight: 700,
+  },
+
+  /* ── Merchant identity row ── */
+  merchantRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+    marginTop: 16,
+  },
+  merchantId: {
+    fontSize: 11,
+    color: C.text,
+  },
+  merchantSub: {
+    fontSize: 8,
+    color: C.textFaint,
     marginTop: 2,
   },
 
-  /* ── Status banner ── */
-  banner: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 8,
-    borderWidth: 1,
-    marginBottom: 20,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+  /* ── Investigation banner (red) ── */
+  bannerRed: {
+    backgroundColor: C.redBg,
+    color: C.white,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    fontSize: 9,
+    fontWeight: 700,
+    marginTop: 10,
   },
-  bannerDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  bannerTextWrap: { flex: 1 },
-  bannerTitle: { fontSize: 9, fontWeight: 700 },
-  bannerBody: { fontSize: 8, color: C.textMuted, marginTop: 1 },
 
-  /* ── Section heading ── */
-  sectionHeader: {
+  /* ── Total revenue lost line ── */
+  totalLossRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 8,
-    gap: 8,
+    marginTop: 10,
+    gap: 12,
   },
-  sectionDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+  totalLossLabel: {
+    fontSize: 10,
+    color: C.text,
   },
-  sectionTitle: {
+  totalLossValue: {
+    fontSize: 11,
+    color: C.text,
+    fontWeight: 700,
+  },
+
+  caveat: {
+    fontSize: 8,
+    color: C.text,
+    fontStyle: "italic",
+    fontWeight: 700,
+    marginTop: 12,
+    textAlign: "center",
+  },
+
+  /* ── CTA ── */
+  ctaTitle: {
     fontSize: 11,
     fontWeight: 700,
     color: C.text,
+    marginTop: 14,
+    textAlign: "center",
   },
-  sectionCount: {
-    fontSize: 8,
-    color: C.textMuted,
-    marginLeft: "auto",
+  ctaBody: {
+    fontSize: 9,
+    color: C.text,
+    marginTop: 4,
+    lineHeight: 1.4,
   },
 
-  /* ── Table ── */
-  tableWrap: {
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 8,
-    overflow: "hidden",
-    backgroundColor: C.white,
-    marginBottom: 18,
+  /* ── Mini-table (one per finding row, matches reference style) ── */
+  miniTable: {
+    marginTop: 12,
   },
-  tr: {
+  miniHeader: {
     flexDirection: "row",
-    borderTopWidth: 1,
-    borderTopColor: C.borderLight,
-    minHeight: 28,
-    alignItems: "center",
+    backgroundColor: C.green,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
   },
-  trFirst: {
-    borderTopWidth: 0,
-  },
-  th: {
-    backgroundColor: "#F8FAFC",
-    borderTopWidth: 0,
-    minHeight: 30,
-  },
-  cell: {
-    paddingVertical: 7,
-    paddingHorizontal: 8,
-  },
-  c1: { width: "22%" },
-  c2: { width: "8%", textAlign: "center" },
-  c3: { width: "15%", textAlign: "right" },
-  c4: { width: "11%", textAlign: "right" },
-  c5: { width: "15%", textAlign: "right" },
-  c6: { width: "29%" },
-  thText: {
-    fontSize: 7,
-    fontWeight: 700,
-    color: C.slate,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  tdText: { fontSize: 8, color: C.text },
-  tdMuted: { fontSize: 8, color: C.textMuted },
-  highRow: { backgroundColor: "#FEF2F2" },
-  highBadge: {
-    fontSize: 6,
-    fontWeight: 700,
-    color: C.red,
-    backgroundColor: "#FEE2E2",
-    paddingVertical: 2,
-    paddingHorizontal: 5,
-    borderRadius: 3,
-    marginTop: 3,
-    alignSelf: "flex-start",
-  },
-  lostValue: {
+  miniHeaderText: {
     fontSize: 8,
     fontWeight: 700,
-    color: C.red,
+    color: C.white,
+  },
+  miniRow: {
+    flexDirection: "row",
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+  },
+  miniCell: {
+    fontSize: 9,
+    color: C.text,
+  },
+  miniReason: {
+    fontSize: 8,
+    color: C.text,
+    paddingHorizontal: 6,
+    paddingTop: 4,
+  },
+  /* Column widths for downgrade-style tables: # | Volume | Downgrade | Rate | If Corrected | Revenue Lost */
+  col1: { width: "8%" },
+  col2: { width: "13%" },
+  col3: { width: "37%" },
+  col4: { width: "12%", textAlign: "right" },
+  col5: { width: "13%", textAlign: "right" },
+  col6: { width: "17%", textAlign: "right" },
+
+  /* ── Section heading ── */
+  sectionHeading: {
+    fontSize: 10,
+    fontWeight: 700,
+    color: C.text,
+    marginTop: 18,
+    marginBottom: 4,
+  },
+  sectionDivider: {
+    height: 1,
+    backgroundColor: C.divider,
+    marginBottom: 4,
   },
 
-  /* ── Service charge table ── */
-  sc1: { width: "35%" },
+  /* ── Service-charge table columns ── */
+  sc1: { width: "40%" },
   sc2: { width: "15%", textAlign: "right" },
   sc3: { width: "15%", textAlign: "right" },
-  sc4: { width: "15%", textAlign: "center" },
-  sc5: { width: "20%", textAlign: "right" },
-  overchargeText: {
-    fontSize: 8,
-    fontWeight: 700,
-    color: "#7C3AED",
-  },
+  sc4: { width: "12%", textAlign: "center" },
+  sc5: { width: "18%", textAlign: "right" },
 
-  /* ── Interchange table ── */
+  /* ── Interchange table columns ── */
   ic1: { width: "55%" },
   ic2: { width: "20%", textAlign: "right" },
   ic3: { width: "15%", textAlign: "right" },
   ic4: { width: "10%", textAlign: "center" },
 
   /* ── Footer ── */
-  footerDivider: {
-    height: 1,
-    backgroundColor: C.border,
-    marginTop: 6,
-    marginBottom: 10,
-  },
-  footerRow: {
+  footer: {
+    position: "absolute",
+    bottom: 18,
+    left: 36,
+    right: 36,
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
-    paddingHorizontal: 36,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: C.divider,
   },
   footerText: {
     fontSize: 7,
-    color: C.slate,
+    color: C.textFaint,
+    maxWidth: "75%",
     lineHeight: 1.4,
-    maxWidth: "70%",
   },
   footerBrand: {
     fontSize: 7,
-    color: C.slateLight,
-    textAlign: "right",
-  },
-  notesBox: {
-    marginTop: 8,
-    paddingHorizontal: 36,
-    paddingVertical: 8,
-    paddingLeft: 36,
-  },
-  notesLabel: {
-    fontSize: 7,
-    fontWeight: 700,
-    color: C.slate,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginBottom: 3,
-  },
-  notesText: {
-    fontSize: 8,
-    color: C.textMuted,
-    lineHeight: 1.4,
+    color: C.textFaint,
   },
 });
 
-function statusToBanner(
-  status: AuditReportData["status"],
-  nonPci: number,
-  downgrades: number,
-) {
-  if (status === "In Progress") {
-    return {
-      border: C.blueBorder,
-      bg: C.blueBg,
-      dot: C.blue,
-      title: "Audit in progress",
-      body: "Results may be partial until the scan completes.",
-    };
-  }
-  if (nonPci > 0) {
-    return {
-      border: C.redBorder,
-      bg: C.redBg,
-      dot: C.red,
-      title: "Non-PCI fees detected",
-      body: "Charges flagged as non-PCI related or non-compliant fee structures.",
-    };
-  }
-  if (downgrades > 0) {
-    return {
-      border: C.amberBorder,
-      bg: C.amberBg,
-      dot: C.amber,
-      title: "Downgrades detected",
-      body: "Qualification issues found that may increase effective rates.",
-    };
-  }
-  return {
-    border: C.greenBorder,
-    bg: C.greenBg,
-    dot: C.green,
-    title: "No issues detected",
-    body: "No non-PCI fees or downgrades flagged this period.",
-  };
+/** Build the merchant identifier line — `<Name> - L<level> -<MID-tail>` per Amanda's reports. */
+function buildMerchantId(merchant: string, mid: string, gatewayLevel?: "II" | "III") {
+  const tail = (mid || "").replace(/\D/g, "").slice(-4);
+  const level = gatewayLevel ? ` - L${gatewayLevel === "II" ? "2" : "3"}` : "";
+  const tailPart = tail ? ` -${tail}` : "";
+  return `${merchant}${level}${tailPart}`;
 }
 
-function Table({ rows, color }: { rows: FindingRow[]; color: "red" | "amber" }) {
-  const sorted = [...rows].sort((a, b) => {
-    const order = { High: 0, Medium: 1, Low: 2 };
-    return (order[a.severity ?? "Low"] ?? 2) - (order[b.severity ?? "Low"] ?? 2);
-  });
-
-  const accentColor = color === "red" ? C.red : C.amber;
-
+/** A reference-style downgrade row: green header bar, single data row, italic reason underneath. */
+function DowngradeRow({ row }: { row: FindingRow }) {
   return (
-    <View style={styles.tableWrap}>
-      <View style={[styles.tr, styles.th]}>
-        <View style={[styles.cell, styles.c1]}>
-          <Text style={styles.thText}>Finding</Text>
-        </View>
-        <View style={[styles.cell, styles.c2]}>
-          <Text style={styles.thText}>Count</Text>
-        </View>
-        <View style={[styles.cell, styles.c3]}>
-          <Text style={styles.thText}>Volume</Text>
-        </View>
-        <View style={[styles.cell, styles.c4]}>
-          <Text style={styles.thText}>Rate</Text>
-        </View>
-        <View style={[styles.cell, styles.c5]}>
-          <Text style={styles.thText}>Rev. Lost</Text>
-        </View>
-        <View style={[styles.cell, styles.c6]}>
-          <Text style={styles.thText}>Reason</Text>
-        </View>
+    <View style={styles.miniTable} wrap={false}>
+      <View style={styles.miniHeader}>
+        <Text style={[styles.miniHeaderText, styles.col1]}># of Trans</Text>
+        <Text style={[styles.miniHeaderText, styles.col2]}>Volume</Text>
+        <Text style={[styles.miniHeaderText, styles.col3]}>Downgrade</Text>
+        <Text style={[styles.miniHeaderText, styles.col4]}>Downgrade Rate</Text>
+        <Text style={[styles.miniHeaderText, styles.col5]}>If Corrected</Text>
+        <Text style={[styles.miniHeaderText, styles.col6]}>Revenue Lost</Text>
       </View>
-
-      {sorted.map((r, idx) => (
-        <View
-          key={`${r.label}-${idx}`}
-          style={[
-            styles.tr,
-            idx === 0 && styles.trFirst,
-            r.severity === "High" && styles.highRow,
-          ]}
-        >
-          <View style={[styles.cell, styles.c1]}>
-            <Text style={styles.tdText}>{r.label}</Text>
-            {r.severity === "High" && (
-              <Text style={styles.highBadge}>HIGH PRIORITY</Text>
-            )}
-          </View>
-          <View style={[styles.cell, styles.c2]}>
-            <Text style={[styles.tdText, { textAlign: "center" }]}>{r.count}</Text>
-          </View>
-          <View style={[styles.cell, styles.c3]}>
-            <Text style={styles.tdMuted}>{r.volume}</Text>
-          </View>
-          <View style={[styles.cell, styles.c4]}>
-            <Text style={[styles.tdText, { color: accentColor }]}>{r.rate}</Text>
-          </View>
-          <View style={[styles.cell, styles.c5]}>
-            <Text style={styles.lostValue}>{r.revenueLost}</Text>
-          </View>
-          <View style={[styles.cell, styles.c6]}>
-            <Text style={styles.tdMuted}>{r.reasons}</Text>
-          </View>
-        </View>
-      ))}
+      <View style={styles.miniRow}>
+        <Text style={[styles.miniCell, styles.col1]}>{row.count}</Text>
+        <Text style={[styles.miniCell, styles.col2]}>{row.volume}</Text>
+        <Text style={[styles.miniCell, styles.col3]}>{row.label}</Text>
+        <Text style={[styles.miniCell, styles.col4]}>{row.chargedRate ?? row.rate}</Text>
+        <Text style={[styles.miniCell, styles.col5]}>{row.correctedRate ?? "—"}</Text>
+        <Text style={[styles.miniCell, styles.col6]}>{row.revenueLost}</Text>
+      </View>
+      <Text style={styles.miniReason}>{row.reasons}</Text>
     </View>
   );
 }
 
-function ServiceChargeTable({ rows }: { rows: ServiceChargeRow[] }) {
-  const money = (n: number) =>
+/** Non-PCI rows reuse the same layout but the rate columns aren't meaningful — we collapse them. */
+function NonPciRow({ row }: { row: FindingRow }) {
+  return (
+    <View style={styles.miniTable} wrap={false}>
+      <View style={styles.miniHeader}>
+        <Text style={[styles.miniHeaderText, styles.col1]}># of Trans</Text>
+        <Text style={[styles.miniHeaderText, styles.col2]}>Volume</Text>
+        <Text style={[styles.miniHeaderText, { width: "62%" }]}>Non-PCI Fee</Text>
+        <Text style={[styles.miniHeaderText, styles.col6]}>Revenue Lost</Text>
+      </View>
+      <View style={styles.miniRow}>
+        <Text style={[styles.miniCell, styles.col1]}>{row.count}</Text>
+        <Text style={[styles.miniCell, styles.col2]}>{row.volume}</Text>
+        <Text style={[styles.miniCell, { width: "62%" }]}>{row.label}</Text>
+        <Text style={[styles.miniCell, styles.col6]}>{row.revenueLost}</Text>
+      </View>
+      <Text style={styles.miniReason}>{row.reasons}</Text>
+    </View>
+  );
+}
+
+function ServiceChargeRow({ row }: { row: ServiceChargeRow }) {
+  const fmt = (n: number) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
-
   return (
-    <View style={styles.tableWrap}>
-      <View style={[styles.tr, styles.th]}>
-        <View style={[styles.cell, styles.sc1]}>
-          <Text style={styles.thText}>Fee</Text>
-        </View>
-        <View style={[styles.cell, styles.sc2]}>
-          <Text style={styles.thText}>Charged</Text>
-        </View>
-        <View style={[styles.cell, styles.sc3]}>
-          <Text style={styles.thText}>Expected</Text>
-        </View>
-        <View style={[styles.cell, styles.sc4]}>
-          <Text style={styles.thText}>Status</Text>
-        </View>
-        <View style={[styles.cell, styles.sc5]}>
-          <Text style={styles.thText}>Overcharge</Text>
-        </View>
+    <View style={styles.miniTable} wrap={false}>
+      <View style={styles.miniHeader}>
+        <Text style={[styles.miniHeaderText, styles.sc1]}>Service Charge</Text>
+        <Text style={[styles.miniHeaderText, styles.sc2]}>Charged</Text>
+        <Text style={[styles.miniHeaderText, styles.sc3]}>Contracted</Text>
+        <Text style={[styles.miniHeaderText, styles.sc4]}>Status</Text>
+        <Text style={[styles.miniHeaderText, styles.sc5]}>Overcharge</Text>
       </View>
-
-      {rows.map((r, idx) => (
-        <View
-          key={`${r.label}-${idx}`}
-          style={[
-            styles.tr,
-            idx === 0 && styles.trFirst,
-            r.overcharge && { backgroundColor: "#F5F3FF" },
-          ]}
-        >
-          <View style={[styles.cell, styles.sc1]}>
-            <Text style={styles.tdText}>{r.label}</Text>
-            {r.rawLine && <Text style={[styles.tdMuted, { fontSize: 7 }]}>{r.rawLine}</Text>}
-          </View>
-          <View style={[styles.cell, styles.sc2]}>
-            <Text style={styles.tdText}>{r.chargedRate.toFixed(4)}%</Text>
-          </View>
-          <View style={[styles.cell, styles.sc3]}>
-            <Text style={styles.tdMuted}>{r.contractedRate.toFixed(4)}%</Text>
-          </View>
-          <View style={[styles.cell, styles.sc4]}>
-            <Text style={r.overcharge ? styles.overchargeText : styles.tdMuted}>
-              {r.overcharge ? "OVER" : "OK"}
-            </Text>
-          </View>
-          <View style={[styles.cell, styles.sc5]}>
-            <Text style={r.overcharge ? styles.overchargeText : styles.tdMuted}>
-              {r.overcharge ? money(r.overchargeAmount) : "—"}
-            </Text>
-          </View>
-        </View>
-      ))}
+      <View style={styles.miniRow}>
+        <Text style={[styles.miniCell, styles.sc1]}>{row.label}</Text>
+        <Text style={[styles.miniCell, styles.sc2]}>{row.chargedRate.toFixed(4)}%</Text>
+        <Text style={[styles.miniCell, styles.sc3]}>{row.contractedRate.toFixed(4)}%</Text>
+        <Text style={[styles.miniCell, styles.sc4]}>{row.overcharge ? "OVER" : "OK"}</Text>
+        <Text style={[styles.miniCell, styles.sc5]}>
+          {row.overcharge ? fmt(row.overchargeAmount) : "—"}
+        </Text>
+      </View>
+      {row.rawLine && <Text style={styles.miniReason}>{row.rawLine}</Text>}
     </View>
   );
 }
 
-function InterchangeTable({ rows }: { rows: InterchangeRow[] }) {
+function InterchangeBlock({ rows }: { rows: InterchangeRow[] }) {
   return (
-    <View style={styles.tableWrap}>
-      <View style={[styles.tr, styles.th]}>
-        <View style={[styles.cell, styles.ic1]}>
-          <Text style={styles.thText}>Line Item</Text>
-        </View>
-        <View style={[styles.cell, styles.ic2]}>
-          <Text style={styles.thText}>Volume</Text>
-        </View>
-        <View style={[styles.cell, styles.ic3]}>
-          <Text style={styles.thText}>Rate</Text>
-        </View>
-        <View style={[styles.cell, styles.ic4]}>
-          <Text style={styles.thText}>Pg</Text>
-        </View>
+    <View style={styles.miniTable}>
+      <View style={styles.miniHeader}>
+        <Text style={[styles.miniHeaderText, styles.ic1]}>Line Item</Text>
+        <Text style={[styles.miniHeaderText, styles.ic2]}>Volume</Text>
+        <Text style={[styles.miniHeaderText, styles.ic3]}>Rate</Text>
+        <Text style={[styles.miniHeaderText, styles.ic4]}>Pg</Text>
       </View>
-
-      {rows.map((r, idx) => (
-        <View key={`${r.label}-${idx}`} style={[styles.tr, idx === 0 && styles.trFirst]}>
-          <View style={[styles.cell, styles.ic1]}>
-            <Text style={[styles.tdText, { fontSize: 7 }]}>{r.label}</Text>
-          </View>
-          <View style={[styles.cell, styles.ic2]}>
-            <Text style={styles.tdMuted}>{r.volume}</Text>
-          </View>
-          <View style={[styles.cell, styles.ic3]}>
-            <Text style={[styles.tdText, { color: "#2563EB" }]}>{r.rate}</Text>
-          </View>
-          <View style={[styles.cell, styles.ic4]}>
-            <Text style={styles.tdMuted}>{r.page}</Text>
-          </View>
+      {rows.map((r, i) => (
+        <View key={`${r.label}-${i}`} style={styles.miniRow} wrap={false}>
+          <Text style={[styles.miniCell, styles.ic1, { fontSize: 8 }]}>{r.label}</Text>
+          <Text style={[styles.miniCell, styles.ic2]}>{r.volume}</Text>
+          <Text style={[styles.miniCell, styles.ic3]}>{r.rate}</Text>
+          <Text style={[styles.miniCell, styles.ic4]}>{r.page}</Text>
         </View>
       ))}
     </View>
@@ -613,188 +409,128 @@ function InterchangeTable({ rows }: { rows: InterchangeRow[] }) {
 }
 
 export default function AuditReportDocument({ data }: { data: AuditReportData }) {
-  const banner = statusToBanner(data.status, data.flags.nonPci, data.flags.downgrades);
-  const scCount = data.flags.serviceCharges ?? 0;
+  const merchantLine = buildMerchantId(data.merchant, data.mid, data.gatewayLevel);
   const scOvercharges = data.flags.serviceChargeOvercharges ?? 0;
-  const icCount = data.flags.interchange ?? 0;
-  const totalFindings = data.flags.nonPci + data.flags.downgrades + scCount + icCount;
+  const showInvestigationBanner = data.flags.nonPci > 0 || scOvercharges > 0;
+  const downgrades = [...data.findings.downgrades].sort((a, b) => {
+    const order = { High: 0, Medium: 1, Low: 2 };
+    return (order[a.severity ?? "Low"] ?? 2) - (order[b.severity ?? "Low"] ?? 2);
+  });
+  const serviceCharges = data.findings.serviceCharges ?? [];
+  const interchange = data.findings.interchange ?? [];
 
   return (
     <Document>
       <Page size="LETTER" style={styles.page}>
         {/* ── Header ── */}
-        <View style={styles.headerWrap}>
-          <View style={styles.headerTop}>
-            <View style={styles.brandBlock}>
-              <Text style={styles.brand}>weAudit</Text>
-              <Text style={styles.brandSub}>Statement Audit Report</Text>
+        <View style={styles.headerRow}>
+          <View style={styles.logoBlock}>
+            <View style={styles.logoBox}>
+              <Text style={styles.logoLine1}>we</Text>
+              <Text style={styles.logoLine2}>Audit</Text>
+              <Text style={styles.logoTagline}>.com</Text>
             </View>
-            <View style={styles.headerMeta}>
-              <Text style={styles.headerMetaText}>Statement Period</Text>
-              <Text style={styles.headerMetaValue}>{data.statementMonth}</Text>
-              <Text style={[styles.headerMetaText, { marginTop: 6 }]}>Audit ID</Text>
-              <Text style={styles.headerMetaValue}>{data.auditId}</Text>
-            </View>
+            <Text style={styles.logoSubtitle}>Protecting merchants' profits</Text>
           </View>
 
-          <View style={styles.headerDivider} />
+          <View style={styles.metaBlock}>
+            <View style={styles.metaRow}>
+              <Text style={styles.metaLabel}>Discount Savings</Text>
+              <Text style={styles.metaValue}>{data.summary.discountSavings}</Text>
+            </View>
+            <View style={styles.metaRow}>
+              <Text style={styles.metaLabel}>Processing Volume</Text>
+              <Text style={styles.metaValue}>{data.volume}</Text>
+            </View>
+            <View style={[styles.metaRow, { marginTop: 4 }]}>
+              <Text style={styles.metaLabel}>Based on:</Text>
+              <Text style={styles.metaLabel}>{data.statementMonth}</Text>
+            </View>
+            {data.processor && (
+              <View style={styles.metaRow}>
+                <Text style={styles.metaLabel}>Processor:</Text>
+                <Text style={styles.metaLabel}>{data.processor}</Text>
+              </View>
+            )}
+          </View>
+        </View>
 
-          <Text style={styles.merchantName}>{data.merchant}</Text>
-          <Text style={styles.merchantDetails}>
-            {data.location}  {"\u00B7"}  MID: {data.mid}  {"\u00B7"}  Processor: {data.processor}
+        {/* ── Merchant identifier ── */}
+        <View>
+          <Text style={styles.merchantId}>{merchantLine}</Text>
+        </View>
+
+        {/* ── Investigation banner ── */}
+        {showInvestigationBanner && (
+          <Text style={styles.bannerRed}>
+            Processor Fees and or charges did not match. Pending Investigation
           </Text>
+        )}
 
-          <View style={styles.pillRow}>
-            <Text style={styles.pill}>Vol: {data.volume}</Text>
-            <Text style={[styles.pill, data.flags.nonPci > 0 && { backgroundColor: "#7F1D1D" }]}>
-              {data.flags.nonPci} Non-PCI
-            </Text>
-            <Text style={[styles.pill, data.flags.downgrades > 0 && { backgroundColor: "#78350F" }]}>
-              {data.flags.downgrades} Downgrades
-            </Text>
-            {scCount > 0 && (
-              <Text style={[styles.pill, scOvercharges > 0 && { backgroundColor: "#5B21B6" }]}>
-                {scCount} Svc Charges{scOvercharges > 0 ? ` (${scOvercharges} over)` : ""}
-              </Text>
-            )}
-            {icCount > 0 && (
-              <Text style={[styles.pill, { backgroundColor: "#1E3A5F" }]}>
-                {icCount} Interchange
-              </Text>
-            )}
-            <Text style={[styles.pill, styles.pillAccent]}>{data.status}</Text>
-          </View>
+        {/* ── Total revenue lost ── */}
+        <View style={styles.totalLossRow}>
+          <Text style={styles.totalLossLabel}>Total Revenue Lost</Text>
+          <Text style={styles.totalLossValue}>{data.summary.revenueLost}</Text>
         </View>
 
-        {/* ── Body ── */}
-        <View style={styles.body}>
-          {/* Summary cards */}
-          <View style={styles.summaryRow}>
-            <View style={[styles.summaryCard, styles.summaryCardAccent]}>
-              <Text style={styles.summaryLabel}>Estimated Savings</Text>
-              <Text style={[styles.summaryValue, styles.summaryValueGreen]}>
-                {data.summary.discountSavings}
-              </Text>
-            </View>
-            <View style={[styles.summaryCard, styles.summaryCardWarn]}>
-              <Text style={styles.summaryLabel}>Revenue Lost</Text>
-              <Text style={[styles.summaryValue, styles.summaryValueRed]}>
-                {data.summary.revenueLost}
-              </Text>
-            </View>
-          </View>
+        {/* ── Caveat ── */}
+        <Text style={styles.caveat}>
+          Many of the downgrades have several reasons behind them, but this report only shows the most likely reason.
+        </Text>
 
-          {/* Stats row */}
-          <View style={styles.statsRow}>
-            <View style={styles.statBox}>
-              <Text style={styles.statNumber}>{totalFindings}</Text>
-              <Text style={styles.statLabel}>Total Findings</Text>
-            </View>
-            <View style={styles.statBox}>
-              <Text style={[styles.statNumber, { color: C.red }]}>{data.flags.nonPci}</Text>
-              <Text style={styles.statLabel}>Non-PCI Flags</Text>
-            </View>
-            <View style={styles.statBox}>
-              <Text style={[styles.statNumber, { color: C.amber }]}>{data.flags.downgrades}</Text>
-              <Text style={styles.statLabel}>Downgrades</Text>
-            </View>
-            {scCount > 0 && (
-              <View style={styles.statBox}>
-                <Text style={[styles.statNumber, { color: "#7C3AED" }]}>{scOvercharges}</Text>
-                <Text style={styles.statLabel}>Svc Overcharges</Text>
-              </View>
-            )}
-            <View style={styles.statBox}>
-              <Text style={styles.statNumber}>{data.volume}</Text>
-              <Text style={styles.statLabel}>Monthly Volume</Text>
-            </View>
-          </View>
+        {/* ── CTA ── */}
+        {(downgrades.length > 0 || data.findings.nonPci.length > 0 || scOvercharges > 0) && (
+          <>
+            <Text style={styles.ctaTitle}>PLEASE CONTACT US ASAP</Text>
+            <Text style={styles.ctaBody}>
+              Your processor has increased your fees and has refused to return them to the agreed
+              upon rate. Please contact us ASAP to discuss your options. Thank you!
+            </Text>
+          </>
+        )}
 
-          {/* Status banner */}
-          <View style={[styles.banner, { borderColor: banner.border, backgroundColor: banner.bg }]}>
-            <View style={[styles.bannerDot, { backgroundColor: banner.dot }]} />
-            <View style={styles.bannerTextWrap}>
-              <Text style={styles.bannerTitle}>{banner.title}</Text>
-              <Text style={styles.bannerBody}>{banner.body}</Text>
-            </View>
-          </View>
+        {/* ── Non-PCI findings ── */}
+        {data.findings.nonPci.length > 0 && (
+          <>
+            {data.findings.nonPci.map((r, i) => (
+              <NonPciRow key={`npci-${i}`} row={r} />
+            ))}
+          </>
+        )}
 
-          {/* Non-PCI findings */}
-          {data.findings.nonPci.length > 0 && (
-            <View>
-              <View style={styles.sectionHeader}>
-                <View style={[styles.sectionDot, { backgroundColor: C.red }]} />
-                <Text style={styles.sectionTitle}>Non-PCI Findings</Text>
-                <Text style={styles.sectionCount}>
-                  {data.findings.nonPci.length} item{data.findings.nonPci.length !== 1 ? "s" : ""}
-                </Text>
-              </View>
-              <Table rows={data.findings.nonPci} color="red" />
-            </View>
-          )}
+        {/* ── Downgrade findings — one mini-table per row, like the reference ── */}
+        {downgrades.map((r, i) => (
+          <DowngradeRow key={`dg-${i}`} row={r} />
+        ))}
 
-          {/* Downgrade findings */}
-          {data.findings.downgrades.length > 0 && (
-            <View>
-              <View style={styles.sectionHeader}>
-                <View style={[styles.sectionDot, { backgroundColor: C.amber }]} />
-                <Text style={styles.sectionTitle}>Downgrade Findings</Text>
-                <Text style={styles.sectionCount}>
-                  {data.findings.downgrades.length} item{data.findings.downgrades.length !== 1 ? "s" : ""}
-                </Text>
-              </View>
-              <Table rows={data.findings.downgrades} color="amber" />
-            </View>
-          )}
+        {/* ── Service charges ── */}
+        {serviceCharges.length > 0 && (
+          <>
+            <Text style={styles.sectionHeading}>Service Charges</Text>
+            <View style={styles.sectionDivider} />
+            {serviceCharges.map((r, i) => (
+              <ServiceChargeRow key={`sc-${i}`} row={r} />
+            ))}
+          </>
+        )}
 
-          {/* Service charge findings */}
-          {(data.findings.serviceCharges ?? []).length > 0 && (
-            <View>
-              <View style={styles.sectionHeader}>
-                <View style={[styles.sectionDot, { backgroundColor: "#7C3AED" }]} />
-                <Text style={styles.sectionTitle}>Service Charge Analysis</Text>
-                <Text style={styles.sectionCount}>
-                  {data.findings.serviceCharges!.length} fee{data.findings.serviceCharges!.length !== 1 ? "s" : ""}
-                  {scOvercharges > 0 ? ` \u00B7 ${scOvercharges} overcharged` : ""}
-                </Text>
-              </View>
-              <ServiceChargeTable rows={data.findings.serviceCharges!} />
-            </View>
-          )}
-
-          {/* Interchange qualification lines */}
-          {(data.findings.interchange ?? []).length > 0 && (
-            <View break>
-              <View style={styles.sectionHeader}>
-                <View style={[styles.sectionDot, { backgroundColor: "#2563EB" }]} />
-                <Text style={styles.sectionTitle}>Interchange Qualification Lines</Text>
-                <Text style={styles.sectionCount}>
-                  {data.findings.interchange!.length} line{data.findings.interchange!.length !== 1 ? "s" : ""}
-                </Text>
-              </View>
-              <InterchangeTable rows={data.findings.interchange!} />
-            </View>
-          )}
-
-          {/* Notes */}
-          {data.notes && (
-            <View style={styles.notesBox}>
-              <Text style={styles.notesLabel}>Notes</Text>
-              <Text style={styles.notesText}>{data.notes}</Text>
-            </View>
-          )}
-        </View>
+        {/* ── Interchange qualification lines ── */}
+        {interchange.length > 0 && (
+          <>
+            <Text style={styles.sectionHeading}>Interchange Qualification Lines</Text>
+            <View style={styles.sectionDivider} />
+            <InterchangeBlock rows={interchange} />
+          </>
+        )}
 
         {/* ── Footer ── */}
-        <View style={styles.footerDivider} />
-        <View style={styles.footerRow}>
+        <View style={styles.footer} fixed>
           <Text style={styles.footerText}>
-            This report is generated from statement text extraction and rules-based classification.
-            Figures are estimates and should be validated against processor pricing schedules,
-            interchange tables, and merchant agreements. weAudit does not provide legal or tax advice.
+            Figures are estimates derived from statement text extraction and rules-based classification.
+            Validate against processor pricing schedules and interchange tables.
           </Text>
           <Text style={styles.footerBrand}>
-            weAudit  {"\u00B7"}  {data.statementMonth}
+            weAudit  {"·"}  {data.statementMonth}  {"·"}  {data.auditId}
           </Text>
         </View>
       </Page>

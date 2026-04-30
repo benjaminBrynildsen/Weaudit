@@ -113,6 +113,7 @@ export default function Report() {
           },
           flags: data.flags,
           findings: data.findings,
+          gatewayLevel: (data as AuditReportData & { gatewayLevel?: "II" | "III" }).gatewayLevel,
           notes: data.notes,
         }}
       />
