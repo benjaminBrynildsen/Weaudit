@@ -48,6 +48,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
+import { AnimatePresence, motion } from "framer-motion";
 import AuditCelebration from "@/components/AuditCelebration";
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
@@ -968,19 +969,42 @@ export default function Dashboard() {
   // (e.g. from BulkAudit's Review button), bind that audit into the
   // workspace and optionally jump straight into full-screen review
   // mode via &fullscreen=1.
+  //
+  // The URL is the source of truth — popstate keeps state in sync when
+  // browser back/forward is used, and the chain navigation in
+  // markReviewedAndExit/skip uses pushState to swap audits in-place
+  // (no full reload, so the workspace stays mounted and animates).
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const auditIdFromUrl = params.get("auditId");
-    const fullscreenFromUrl = params.get("fullscreen") === "1";
-    const fromBulk = params.get("from") === "bulk";
-    if (auditIdFromUrl) {
-      setCurrentAuditId(auditIdFromUrl);
-      if (fullscreenFromUrl) setIsFullScreen(true);
-      if (fromBulk) setReturnToBulk(true);
-    }
-    // intentional: only run on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const sync = () => {
+      const params = new URLSearchParams(window.location.search);
+      const auditIdFromUrl = params.get("auditId");
+      const fullscreenFromUrl = params.get("fullscreen") === "1";
+      const fromBulk = params.get("from") === "bulk";
+      if (auditIdFromUrl) {
+        setCurrentAuditId((prev) => (prev === auditIdFromUrl ? prev : auditIdFromUrl));
+        if (fullscreenFromUrl) setIsFullScreen(true);
+        if (fromBulk) setReturnToBulk(true);
+      }
+    };
+    sync();
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
   }, []);
+
+  // Whenever the active audit switches, drop the cached statement-PDF
+  // blob URL so the load-PDF effect picks up the new audit's file
+  // instead of leaving the previous one in place.
+  useEffect(() => {
+    setPdfBlobUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setSelectedPage(1);
+    setSelectedEvidenceId(null);
+    setSelectedNonPci(null);
+    setSelectedDowngrade(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentAuditId]);
 
   // Look up the next eligible audit in the bulk batch — the row after
   // the current one that has an auditId, isn't already reviewed, and is
@@ -1055,13 +1079,17 @@ export default function Dashboard() {
         // ignore — UX still works without persistence
       }
     }
-    setIsFullScreen(false);
     // Chain to the next audit if any remain; otherwise drop into the
     // generate-PDFs grid so the auditor can ship the whole batch.
     const next = getNextBulkAuditId(currentAuditId ?? null);
     if (next) {
-      window.location.href = `/dashboard?auditId=${next}&fullscreen=1&from=bulk`;
+      // SPA navigation — the workspace stays mounted, the inner
+      // motion.div animates the swap, and React-query refetches the
+      // new audit's data behind the animation.
+      window.history.pushState(null, "", `/dashboard?auditId=${next}&fullscreen=1&from=bulk`);
+      setCurrentAuditId(next);
     } else {
+      setIsFullScreen(false);
       window.location.href = "/bulk-audit?phase=generate";
     }
   }, [currentAuditId, auditData, getNextBulkAuditId]);
@@ -1894,7 +1922,16 @@ export default function Dashboard() {
             fixed overlay with a left findings sidebar so the auditor
             can click straight from a finding to its page without
             leaving the workspace. */}
-        <div
+        <motion.div
+          // Re-key on currentAuditId in fullscreen so the chain
+          // navigation (Mark reviewed → next) slides the workspace
+          // contents in from the right instead of looking like a full
+          // page reload. In non-fullscreen mode the key is stable so
+          // we don't re-mount on the rare audit swap.
+          key={isFullScreen ? currentAuditId ?? "no-audit" : "static"}
+          initial={isFullScreen ? { opacity: 0, x: 28 } : false}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.22, ease: "easeOut" }}
           className={
             isFullScreen
               ? "fixed inset-0 z-50 bg-background flex"
@@ -2079,10 +2116,17 @@ export default function Dashboard() {
                         // the queue (not the generate phase, since we
                         // only ship reviewed audits there).
                         const next = getNextBulkAuditId(null);
-                        setIsFullScreen(false);
-                        window.location.href = next
-                          ? `/dashboard?auditId=${next}&fullscreen=1&from=bulk`
-                          : "/bulk-audit";
+                        if (next) {
+                          window.history.pushState(
+                            null,
+                            "",
+                            `/dashboard?auditId=${next}&fullscreen=1&from=bulk`,
+                          );
+                          setCurrentAuditId(next);
+                        } else {
+                          setIsFullScreen(false);
+                          window.location.href = "/bulk-audit";
+                        }
                       }}
                       title="Skip without marking reviewed — moves to the next audit"
                     >
@@ -2104,6 +2148,7 @@ export default function Dashboard() {
                       {nextBulkAuditAfterThis
                         ? "Mark reviewed"
                         : "Mark reviewed & generate PDFs"}
+                      <ArrowRight className="w-4 h-4 ml-1.5" />
                     </Button>
                   </>
                 )}
@@ -2279,7 +2324,7 @@ export default function Dashboard() {
             </div>
           </div>
         </Card>
-        </div>
+        </motion.div>
 
         {/* Live Extracted Data — below the PDF viewer */}
         <Card className="overflow-hidden shadow-sm">
