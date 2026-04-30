@@ -599,7 +599,9 @@ export async function registerRoutes(
         merchant: audit.clientName,
         location: "Main location",
         statementMonth: audit.statementMonth,
-        processor: audit.processor,
+        processor: (audit.processorDetected && audit.processorDetected.trim() && audit.processorDetected !== "Unknown")
+          ? audit.processorDetected
+          : audit.processor,
         mid: audit.mid,
         volume: adjustedVolume > 0 ? money(adjustedVolume) : "$0.00",
         totalFees: adjustedFees > 0 ? money(adjustedFees) : "$0.00",
