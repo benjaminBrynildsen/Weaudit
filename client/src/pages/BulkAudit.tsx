@@ -283,6 +283,25 @@ export default function BulkAudit() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
 
+  // Phase 2 grid: when ?phase=generate is set in the URL we render a
+  // grid of reviewed audits with batch generation actions instead of
+  // the queue list. The auditor lands here automatically after
+  // reviewing the last audit in the chain (see Dashboard's
+  // markReviewedAndExit). Read this on mount + on `popstate` so the
+  // browser back/forward buttons swap views correctly.
+  const [phase, setPhase] = useState<"queue" | "generate">(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("phase") === "generate" ? "generate" : "queue";
+  });
+  useEffect(() => {
+    const onPop = () => {
+      const params = new URLSearchParams(window.location.search);
+      setPhase(params.get("phase") === "generate" ? "generate" : "queue");
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
   // Workspace → bulk-page handoff: when Mark reviewed sends the
   // auditor back, it stashes a hint in sessionStorage. Show a toast
   // confirming the action (only if the hint is fresh, < 30s, so we
@@ -631,6 +650,156 @@ export default function BulkAudit() {
     return indexed.map((x) => x.e);
   }, [entries, reviewedAudits]);
 
+  // ── Phase 2 (Generate PDFs grid) ────────────────────────────────────────
+  // Renders only the reviewed audits in this batch as a clickable grid,
+  // with a single "Generate all PDFs" action that bundles them into a
+  // ZIP. The auditor lands here automatically after reviewing the last
+  // audit, or via the URL ?phase=generate.
+  if (phase === "generate") {
+    const reviewedEntries = entries.filter(
+      (e) => e.auditId && reviewedAudits.has(e.auditId),
+    );
+    return (
+      <DashboardLayout>
+        <div className="space-y-6 max-w-6xl mx-auto">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="-ml-2 text-muted-foreground hover:text-foreground"
+                  onClick={() => {
+                    setPhase("queue");
+                    setLocation("/bulk-audit");
+                  }}
+                >
+                  ← Back to review queue
+                </Button>
+              </div>
+              <h1 className="text-3xl font-bold font-heading tracking-tight">Generate PDFs</h1>
+              <p className="text-muted-foreground">
+                {reviewedEntries.length} reviewed audit
+                {reviewedEntries.length === 1 ? "" : "s"} ready to ship. Click a tile to open
+                the generate workspace, or generate all at once.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {generateAllProgress ? (
+                <Badge variant="outline" className="text-blue-700 bg-blue-500/10 border-blue-500/20">
+                  <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  Generating {generateAllProgress.current}/{generateAllProgress.total}…
+                </Badge>
+              ) : (
+                <Button
+                  data-testid="button-generate-all-pdfs"
+                  size="lg"
+                  onClick={generateAll}
+                  disabled={reviewedEntries.length === 0}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Generate all PDFs ({reviewedEntries.length})
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {reviewedEntries.length === 0 ? (
+            <Card className="p-12 text-center text-muted-foreground">
+              <Sparkles className="w-8 h-8 mx-auto mb-3 opacity-40" />
+              <p className="text-sm">No reviewed audits yet.</p>
+              <p className="text-xs mt-1">
+                Mark audits reviewed from the queue first — only reviewed audits can be shipped.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-4"
+                onClick={() => {
+                  setPhase("queue");
+                  setLocation("/bulk-audit");
+                }}
+              >
+                Back to review queue
+              </Button>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {reviewedEntries.map((entry) => (
+                <button
+                  key={entry.id}
+                  data-testid={`tile-generate-${entry.auditId}`}
+                  type="button"
+                  onClick={() =>
+                    setLocation(`/report?auditId=${entry.auditId}&fullscreen=1&from=bulk-generate`)
+                  }
+                  className="text-left rounded-xl border border-border bg-card hover:border-primary/40 hover:bg-secondary/30 transition-colors p-4 flex flex-col gap-2"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-sm truncate">
+                        {entry.merchant || entry.fileName.replace(/\.[^.]+$/, "")}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                        {entry.processorDetected || "—"}
+                      </p>
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className={
+                        entry.companyMatched === false
+                          ? "text-amber-700 bg-amber-500/10 border-amber-500/20 shrink-0"
+                          : "text-emerald-700 bg-emerald-500/10 border-emerald-500/20 shrink-0"
+                      }
+                    >
+                      {entry.companyMatched === false ? (
+                        <>
+                          <AlertCircle className="w-3 h-3 mr-1" />
+                          No company
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-3 h-3 mr-1" />
+                          Reviewed
+                        </>
+                      )}
+                    </Badge>
+                  </div>
+                  {entry.findings && (
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mt-1">
+                      <span className="text-muted-foreground">Non-PCI</span>
+                      <span className={`font-mono text-right ${entry.findings.nonPci > 0 ? "text-red-600" : ""}`}>
+                        {entry.findings.nonPci}
+                      </span>
+                      <span className="text-muted-foreground">Downgrades</span>
+                      <span className={`font-mono text-right ${entry.findings.downgrades > 0 ? "text-amber-600" : ""}`}>
+                        {entry.findings.downgrades}
+                      </span>
+                      <span className="text-muted-foreground">Revenue lost</span>
+                      <span className="font-mono text-right text-foreground">
+                        {entry.findings.revenueLost.toLocaleString("en-US", {
+                          style: "currency",
+                          currency: "USD",
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </span>
+                    </div>
+                  )}
+                  <div className="mt-auto pt-2 flex items-center text-xs text-primary">
+                    <Download className="w-3.5 h-3.5 mr-1.5" />
+                    Open generate workspace
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  // ── Phase 1 (review queue) ──────────────────────────────────────────────
   return (
     <DashboardLayout>
       <div className="space-y-6 max-w-5xl mx-auto">
@@ -742,39 +911,35 @@ export default function BulkAudit() {
               </div>
               <div className="flex items-center gap-2">
                 {(() => {
-                  // Show Generate all whenever there's at least one
-                  // ship-ready row. Hidden during the scan run so the
-                  // header isn't crowded with conflicting actions.
-                  const eligibleCount = entries.filter(
-                    (e) => e.auditId && (e.status === "complete" || e.status === "needs_review"),
+                  // Continue to Generate appears as soon as the auditor
+                  // has marked at least one audit reviewed. Funnels them
+                  // into the phase-2 grid, which is the canonical place
+                  // to ship PDFs (individually or as a single ZIP).
+                  const reviewedCount = entries.filter(
+                    (e) => e.auditId && reviewedAudits.has(e.auditId),
                   ).length;
-                  if (isRunning || eligibleCount === 0) return null;
-                  if (generateAllProgress) {
-                    return (
-                      <Badge variant="outline" className="text-blue-700 bg-blue-500/10 border-blue-500/20">
-                        <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                        Generating {generateAllProgress.current}/{generateAllProgress.total}…
-                      </Badge>
-                    );
-                  }
+                  if (isRunning || reviewedCount === 0) return null;
                   return (
                     <Button
-                      data-testid="button-generate-all"
+                      data-testid="button-continue-to-generate"
                       size="sm"
-                      onClick={generateAll}
+                      onClick={() => {
+                        setPhase("generate");
+                        setLocation("/bulk-audit?phase=generate");
+                      }}
                       className="border border-primary/30"
                     >
                       <Download className="w-3.5 h-3.5 mr-1.5" />
-                      Generate all ({eligibleCount})
+                      Continue to Generate ({reviewedCount})
                     </Button>
                   );
                 })()}
-                {completedFiles > 0 && !isRunning && !generateAllProgress && (
+                {completedFiles > 0 && !isRunning && (
                   <Button variant="ghost" size="sm" onClick={clearCompleted}>
                     Clear completed
                   </Button>
                 )}
-                {entries.length > 0 && !isRunning && !generateAllProgress && (
+                {entries.length > 0 && !isRunning && (
                   <Button variant="ghost" size="sm" onClick={startNewBatch}>
                     Start new batch
                   </Button>

@@ -62,15 +62,23 @@ export default function Report() {
   //   ?auditId=xxx          — which audit to load
   //   ?fullscreen=1         — render the report as a full-viewport workspace
   //                           (no DashboardLayout chrome) for in-flow generation
-  //   ?from=bulk            — back button returns to the bulk queue
-  const { auditId, isFullScreen, fromBulk } = useMemo(() => {
+  //   ?from=bulk            — back button returns to the bulk review queue
+  //   ?from=bulk-generate   — back button returns to the bulk Generate-PDFs grid
+  const { auditId, isFullScreen, backTarget } = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
+    const from = params.get("from");
     return {
       auditId: params.get("auditId") ?? undefined,
       isFullScreen: params.get("fullscreen") === "1",
-      fromBulk: params.get("from") === "bulk",
+      backTarget:
+        from === "bulk-generate"
+          ? "/bulk-audit?phase=generate"
+          : from === "bulk"
+            ? "/bulk-audit"
+            : null,
     };
   }, []);
+  const fromBulk = backTarget !== null;
 
   // Fetch real report data from /api/reports/:auditId when available
   const { data: apiData, isLoading } = useReport(auditId);
@@ -166,8 +174,8 @@ export default function Report() {
   // ESC exits fullscreen mode. Mirrors the audit workspace UX so muscle
   // memory carries over between the two surfaces.
   const exitFullScreen = () => {
-    if (fromBulk) {
-      window.location.href = "/bulk-audit";
+    if (backTarget) {
+      window.location.href = backTarget;
     } else {
       const next = new URL(window.location.href);
       next.searchParams.delete("fullscreen");
@@ -183,7 +191,7 @@ export default function Report() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isFullScreen, fromBulk]);
+  }, [isFullScreen, backTarget]);
 
   const editFields = (
     <div className="space-y-3">
@@ -331,7 +339,11 @@ export default function Report() {
               className="text-muted-foreground hover:text-foreground"
             >
               <ArrowLeft className="w-4 h-4 mr-1.5" />
-              {fromBulk ? "Back to bulk" : "Exit"}
+              {backTarget === "/bulk-audit?phase=generate"
+                ? "Back to grid"
+                : backTarget === "/bulk-audit"
+                  ? "Back to bulk"
+                  : "Exit"}
             </Button>
             <div className="hidden md:block w-px h-5 bg-border" />
             <div className="min-w-0">
@@ -397,7 +409,7 @@ export default function Report() {
                 variant="ghost"
                 size="sm"
                 className="-ml-2 text-muted-foreground hover:text-foreground"
-                onClick={() => setLocation(fromBulk ? "/bulk-audit" : "/history")}
+                onClick={() => setLocation(backTarget ?? "/history")}
               >
                 <ArrowLeft className="w-4 h-4 mr-2" /> Back
               </Button>

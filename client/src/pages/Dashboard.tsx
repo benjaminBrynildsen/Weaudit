@@ -982,9 +982,53 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Mark the current audit as reviewed and return to the Bulk Audit
-  // queue. Persists to localStorage so BulkAudit shows a reviewed
-  // badge on the matching row when it remounts.
+  // Look up the next eligible audit in the bulk batch — the row after
+  // the current one that has an auditId, isn't already reviewed, and is
+  // in a state the auditor can ship (complete or needs_review).
+  // `alsoTreatAsReviewed` lets the caller pretend an audit has just
+  // been marked, so we can compute "what comes after this one finishes"
+  // before persisting.
+  const getNextBulkAuditId = useCallback((alsoTreatAsReviewed: string | null = null): string | null => {
+    try {
+      const bulkRaw = window.localStorage.getItem("weaudit:bulk-state");
+      if (!bulkRaw) return null;
+      const reviewedRaw = window.localStorage.getItem("weaudit:reviewed-audits");
+      const reviewedSet = new Set<string>(
+        reviewedRaw ? (JSON.parse(reviewedRaw) as string[]) : [],
+      );
+      if (alsoTreatAsReviewed) reviewedSet.add(alsoTreatAsReviewed);
+      const entries = JSON.parse(bulkRaw) as Array<{
+        auditId?: string;
+        status?: string;
+      }>;
+      return (
+        entries.find(
+          (e) =>
+            e.auditId &&
+            e.auditId !== currentAuditId &&
+            (e.status === "complete" || e.status === "needs_review") &&
+            !reviewedSet.has(e.auditId),
+        )?.auditId ?? null
+      );
+    } catch {
+      return null;
+    }
+  }, [currentAuditId]);
+
+  // The audit that will become "current" after we mark this one done.
+  // Drives the Mark-reviewed button label so the last audit in the
+  // chain reads "Mark reviewed & generate PDFs" instead of suggesting
+  // there's another one waiting.
+  const nextBulkAuditAfterThis = useMemo(
+    () => (returnToBulk ? getNextBulkAuditId(currentAuditId ?? null) : null),
+    [returnToBulk, currentAuditId, getNextBulkAuditId],
+  );
+
+  // Mark the current audit as reviewed and either jump to the next
+  // unreviewed audit in the bulk batch, or — when the chain is done —
+  // hand the auditor off to the generate-PDFs phase. Persists to
+  // localStorage so BulkAudit shows a reviewed badge on the matching
+  // row when it remounts.
   const markReviewedAndExit = useCallback(() => {
     if (currentAuditId) {
       try {
@@ -1012,8 +1056,15 @@ export default function Dashboard() {
       }
     }
     setIsFullScreen(false);
-    window.location.href = "/bulk-audit";
-  }, [currentAuditId, auditData]);
+    // Chain to the next audit if any remain; otherwise drop into the
+    // generate-PDFs grid so the auditor can ship the whole batch.
+    const next = getNextBulkAuditId(currentAuditId ?? null);
+    if (next) {
+      window.location.href = `/dashboard?auditId=${next}&fullscreen=1&from=bulk`;
+    } else {
+      window.location.href = "/bulk-audit?phase=generate";
+    }
+  }, [currentAuditId, auditData, getNextBulkAuditId]);
 
   // Once an externally-loaded audit's data arrives, fetch the source
   // statement PDF so the viewer has something to render. Mirrors the
@@ -2016,17 +2067,45 @@ export default function Dashboard() {
                   Page {selectedPage} / {numPages}
                 </Badge>
                 {isFullScreen && returnToBulk && (
-                  <Button
-                    data-testid="button-mark-reviewed"
-                    size="sm"
-                    variant="default"
-                    className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white"
-                    onClick={markReviewedAndExit}
-                    title="Mark this audit as reviewed and return to the bulk queue"
-                  >
-                    <CheckCircle2 className="w-4 h-4 mr-1.5" />
-                    Mark reviewed
-                  </Button>
+                  <>
+                    <Button
+                      data-testid="button-skip-audit"
+                      size="sm"
+                      variant="outline"
+                      className="h-8"
+                      onClick={() => {
+                        // Skip = move on without marking reviewed. If
+                        // there's nothing left to skip to, drop back to
+                        // the queue (not the generate phase, since we
+                        // only ship reviewed audits there).
+                        const next = getNextBulkAuditId(null);
+                        setIsFullScreen(false);
+                        window.location.href = next
+                          ? `/dashboard?auditId=${next}&fullscreen=1&from=bulk`
+                          : "/bulk-audit";
+                      }}
+                      title="Skip without marking reviewed — moves to the next audit"
+                    >
+                      Skip
+                    </Button>
+                    <Button
+                      data-testid="button-mark-reviewed"
+                      size="sm"
+                      variant="default"
+                      className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white"
+                      onClick={markReviewedAndExit}
+                      title={
+                        nextBulkAuditAfterThis
+                          ? "Mark reviewed and continue to the next audit"
+                          : "Mark reviewed and continue to Generate PDFs"
+                      }
+                    >
+                      <CheckCircle2 className="w-4 h-4 mr-1.5" />
+                      {nextBulkAuditAfterThis
+                        ? "Mark reviewed"
+                        : "Mark reviewed & generate PDFs"}
+                    </Button>
+                  </>
                 )}
                 <Button
                   data-testid="button-toggle-fullscreen"
