@@ -11,6 +11,37 @@ import type { AuditReportData } from "@/components/reports/AuditReportDocument";
 import { makeMockAuditReport } from "@/lib/mockAuditReport";
 import { useReport } from "@/lib/api";
 
+/**
+ * Convert a "YYYY-MM" statement month to "Month Year" (e.g. "2025-12" →
+ * "December 2025"). Free-form values pass through unchanged so we never
+ * mangle a month the user typed in their own format.
+ */
+function formatStatementMonthLong(month: string): string {
+  const m = /^(\d{4})-(\d{1,2})$/.exec(month.trim());
+  if (!m) return month.trim();
+  const [, year, monthNum] = m;
+  const date = new Date(Number(year), Number(monthNum) - 1, 1);
+  return new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(date);
+}
+
+/**
+ * Build the downloaded-PDF filename using Amanda's existing convention so
+ * generated reports drop into her workflow without renaming. Pattern:
+ *   "<Merchant>[ <MID-tail>] <Month> <Year> Audit.pdf"
+ * The MID-tail is appended only when not already present in the merchant
+ * string (Companies-roster names sometimes already include it).
+ */
+function buildAuditPdfFileName(merchant: string, statementMonth: string, mid: string): string {
+  const cleanedMerchant = (merchant || "").trim() || "Audit";
+  const tail = (mid || "").replace(/\D/g, "").slice(-4);
+  const tailPart = tail && !cleanedMerchant.includes(tail) ? ` ${tail}` : "";
+  const monthPart = formatStatementMonthLong(statementMonth);
+  const monthSegment = monthPart ? ` ${monthPart}` : "";
+  const raw = `${cleanedMerchant}${tailPart}${monthSegment} Audit.pdf`;
+  // Strip filesystem-hostile characters and collapse whitespace.
+  return raw.replace(/[\/\\:*?"<>|]/g, "").replace(/\s+/g, " ").trim();
+}
+
 /** Custom PDF preview that shows loading/error states instead of a blank iframe. */
 function PDFPreview({
   document,
@@ -135,7 +166,12 @@ export default function Report() {
     [data, draft],
   );
 
-  const fileName = `${draft.merchant.replace(/\s+/g, "-")}-${draft.statementMonth}-${data.auditId}.pdf`.toLowerCase();
+  // Match Amanda's naming convention from /Test Files/.../Amanda_s Audits/ so
+  // the downloaded files drop into the same workflow seamlessly. Examples:
+  //   "Patriot Flooring 0880 December 2025 Audit.pdf"
+  //   "Mars Electric MACEDONIA February 2026 Audit.pdf"
+  //   "SeoTuners February 2026 Audit.pdf"
+  const fileName = buildAuditPdfFileName(draft.merchant, draft.statementMonth, draft.mid);
 
   const download = async () => {
     try {
