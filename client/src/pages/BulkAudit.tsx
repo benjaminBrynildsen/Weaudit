@@ -23,6 +23,7 @@ import {
   Sparkles,
   Files,
   Building2,
+  Download,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -833,6 +834,23 @@ export default function BulkAudit() {
                           </Button>
                         );
                       })()
+                    )}
+                    {(entry.status === "complete" || entry.status === "needs_review") && entry.auditId && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-primary/30 text-primary hover:bg-primary/10"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          // Open the report editor in fullscreen mode.
+                          // `from=bulk` routes the back button to /bulk-audit.
+                          setLocation(`/report?auditId=${entry.auditId}&fullscreen=1&from=bulk`);
+                        }}
+                        title="Open the report editor and generate the official PDF"
+                      >
+                        <Download className="w-3.5 h-3.5 mr-1.5" />
+                        Generate
+                      </Button>
                     )}
                     {entry.status === "queued" && (
                       <Button

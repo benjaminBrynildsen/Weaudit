@@ -4,7 +4,7 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Download, ArrowLeft, Loader2, AlertTriangle } from "lucide-react";
+import { Download, ArrowLeft, Loader2, AlertTriangle, Minimize2 } from "lucide-react";
 import { usePDF, pdf } from "@react-pdf/renderer";
 import AuditReportDocument from "@/components/reports/AuditReportDocument";
 import type { AuditReportData } from "@/components/reports/AuditReportDocument";
@@ -12,7 +12,13 @@ import { makeMockAuditReport } from "@/lib/mockAuditReport";
 import { useReport } from "@/lib/api";
 
 /** Custom PDF preview that shows loading/error states instead of a blank iframe. */
-function PDFPreview({ document }: { document: React.ReactElement }) {
+function PDFPreview({
+  document,
+  heightClass = "h-[72vh]",
+}: {
+  document: React.ReactElement;
+  heightClass?: string;
+}) {
   const [instance, updateInstance] = usePDF({ document: document as any });
 
   useEffect(() => {
@@ -20,7 +26,7 @@ function PDFPreview({ document }: { document: React.ReactElement }) {
   }, [document, updateInstance]);
 
   return (
-    <div className="h-[72vh] overflow-hidden rounded-lg border border-border bg-secondary/20 relative">
+    <div className={`${heightClass} overflow-hidden rounded-lg border border-border bg-secondary/20 relative`}>
       {instance.loading && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10 bg-secondary/20">
           <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
@@ -51,10 +57,18 @@ export default function Report() {
   const [, setLocation] = useLocation();
   const [downloading, setDownloading] = useState(false);
 
-  // Read auditId from URL query params (History page links here with ?auditId=xxx)
-  const auditId = useMemo(() => {
+  // Read URL query params:
+  //   ?auditId=xxx          — which audit to load
+  //   ?fullscreen=1         — render the report as a full-viewport workspace
+  //                           (no DashboardLayout chrome) for in-flow generation
+  //   ?from=bulk            — back button returns to the bulk queue
+  const { auditId, isFullScreen, fromBulk } = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
-    return params.get("auditId") ?? undefined;
+    return {
+      auditId: params.get("auditId") ?? undefined,
+      isFullScreen: params.get("fullscreen") === "1",
+      fromBulk: params.get("from") === "bulk",
+    };
   }, []);
 
   // Fetch real report data from /api/reports/:auditId when available
@@ -143,6 +157,229 @@ export default function Report() {
     }
   };
 
+  // ESC exits fullscreen mode. Mirrors the audit workspace UX so muscle
+  // memory carries over between the two surfaces.
+  const exitFullScreen = () => {
+    if (fromBulk) {
+      window.location.href = "/bulk-audit";
+    } else {
+      const next = new URL(window.location.href);
+      next.searchParams.delete("fullscreen");
+      next.searchParams.delete("from");
+      window.location.href = next.pathname + (next.search ? next.search : "");
+    }
+  };
+  useEffect(() => {
+    if (!isFullScreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") exitFullScreen();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFullScreen, fromBulk]);
+
+  const editFields = (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label data-testid="label-report-merchant" className="text-[11px] text-muted-foreground">
+            Merchant
+          </label>
+          <input
+            data-testid="input-report-merchant"
+            className="mt-1 h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
+            value={draft.merchant}
+            onChange={(e) => setDraft((p) => ({ ...p, merchant: e.target.value }))}
+          />
+        </div>
+        <div>
+          <label data-testid="label-report-location" className="text-[11px] text-muted-foreground">
+            Location
+          </label>
+          <input
+            data-testid="input-report-location"
+            className="mt-1 h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
+            value={draft.location}
+            onChange={(e) => setDraft((p) => ({ ...p, location: e.target.value }))}
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label data-testid="label-report-statement-month" className="text-[11px] text-muted-foreground">
+            Statement month
+          </label>
+          <input
+            data-testid="input-report-statement-month"
+            className="mt-1 h-9 w-full rounded-md border border-border bg-background px-3 text-sm font-mono"
+            value={draft.statementMonth}
+            onChange={(e) => setDraft((p) => ({ ...p, statementMonth: e.target.value }))}
+            placeholder="YYYY-MM"
+          />
+        </div>
+        <div>
+          <label data-testid="label-report-processor" className="text-[11px] text-muted-foreground">
+            Processor
+          </label>
+          <input
+            data-testid="input-report-processor"
+            className="mt-1 h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
+            value={draft.processor}
+            onChange={(e) => setDraft((p) => ({ ...p, processor: e.target.value }))}
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label data-testid="label-report-mid" className="text-[11px] text-muted-foreground">
+            MID
+          </label>
+          <input
+            data-testid="input-report-mid"
+            className="mt-1 h-9 w-full rounded-md border border-border bg-background px-3 text-sm font-mono"
+            value={draft.mid}
+            onChange={(e) => setDraft((p) => ({ ...p, mid: e.target.value }))}
+          />
+        </div>
+        <div>
+          <label data-testid="label-report-volume" className="text-[11px] text-muted-foreground">
+            Volume
+          </label>
+          <input
+            data-testid="input-report-volume"
+            className="mt-1 h-9 w-full rounded-md border border-border bg-background px-3 text-sm font-mono"
+            value={draft.volume}
+            onChange={(e) => setDraft((p) => ({ ...p, volume: e.target.value }))}
+            placeholder="$0.00"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label data-testid="label-report-discount-savings" className="text-[11px] text-muted-foreground">
+            Discount savings (est.)
+          </label>
+          <input
+            data-testid="input-report-discount-savings"
+            className="mt-1 h-9 w-full rounded-md border border-border bg-background px-3 text-sm font-mono"
+            value={draft.discountSavings}
+            onChange={(e) => setDraft((p) => ({ ...p, discountSavings: e.target.value }))}
+            placeholder="$0.00"
+          />
+        </div>
+        <div>
+          <label data-testid="label-report-revenue-lost" className="text-[11px] text-muted-foreground">
+            Revenue lost (est.)
+          </label>
+          <input
+            data-testid="input-report-revenue-lost"
+            className="mt-1 h-9 w-full rounded-md border border-border bg-background px-3 text-sm font-mono"
+            value={draft.revenueLost}
+            onChange={(e) => setDraft((p) => ({ ...p, revenueLost: e.target.value }))}
+            placeholder="$0.00"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label data-testid="label-report-status" className="text-[11px] text-muted-foreground">
+          Status
+        </label>
+        <div className="mt-1 flex flex-wrap gap-2">
+          {(["Needs Review", "In Progress", "Complete"] as const).map((s) => (
+            <button
+              key={s}
+              data-testid={`button-report-status-${s.replace(/\s+/g, "-").toLowerCase()}`}
+              className={`h-9 px-3 rounded-md border text-sm transition-colors ${
+                draft.status === s
+                  ? "bg-foreground text-background border-foreground"
+                  : "bg-background border-border hover:bg-secondary/50"
+              }`}
+              onClick={() => setDraft((p) => ({ ...p, status: s }))}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  // Fullscreen workspace: mirrors the dashboard audit workspace pattern —
+  // top bar, edit panel left, PDF preview right, full viewport.
+  if (isFullScreen) {
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col bg-background">
+        {/* Top bar */}
+        <div className="h-14 shrink-0 flex items-center justify-between gap-4 border-b border-border bg-card px-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <Button
+              data-testid="button-report-back"
+              variant="ghost"
+              size="sm"
+              onClick={exitFullScreen}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <ArrowLeft className="w-4 h-4 mr-1.5" />
+              {fromBulk ? "Back to bulk" : "Exit"}
+            </Button>
+            <div className="hidden md:block w-px h-5 bg-border" />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold truncate">{draft.merchant}</p>
+              <p className="text-xs text-muted-foreground truncate">
+                {draft.statementMonth}
+                {draft.mid ? ` · MID ${draft.mid}` : ""}
+                {draft.processor ? ` · ${draft.processor}` : ""}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="text-xs text-muted-foreground hidden sm:inline-flex">
+              {draft.status}
+            </Badge>
+            <Button
+              data-testid="button-report-download"
+              onClick={download}
+              disabled={downloading}
+              className="shadow-sm"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              {downloading ? "Preparing…" : "Generate official report"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 w-9 p-0"
+              onClick={exitFullScreen}
+              title="Exit full screen (Esc)"
+            >
+              <Minimize2 className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+
+        {/* Two-pane workspace */}
+        <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-12">
+          <div className="md:col-span-5 border-r border-border overflow-y-auto p-5">
+            <p className="text-sm font-semibold">Edit report fields</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              These values drive the PDF preview in real time.
+            </p>
+            <div className="mt-4">{editFields}</div>
+          </div>
+          <div className="md:col-span-7 p-3 bg-secondary/20 min-h-0">
+            <PDFPreview document={doc} heightClass="h-full" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <DashboardLayout>
       <div className="space-y-4">
@@ -154,7 +391,7 @@ export default function Report() {
                 variant="ghost"
                 size="sm"
                 className="-ml-2 text-muted-foreground hover:text-foreground"
-                onClick={() => setLocation("/history")}
+                onClick={() => setLocation(fromBulk ? "/bulk-audit" : "/history")}
               >
                 <ArrowLeft className="w-4 h-4 mr-2" /> Back
               </Button>
@@ -192,133 +429,7 @@ export default function Report() {
                 These values drive the PDF preview in real time.
               </p>
 
-              <div className="mt-4 space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label data-testid="label-report-merchant" className="text-[11px] text-muted-foreground">
-                      Merchant
-                    </label>
-                    <input
-                      data-testid="input-report-merchant"
-                      className="mt-1 h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
-                      value={draft.merchant}
-                      onChange={(e) => setDraft((p) => ({ ...p, merchant: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <label data-testid="label-report-location" className="text-[11px] text-muted-foreground">
-                      Location
-                    </label>
-                    <input
-                      data-testid="input-report-location"
-                      className="mt-1 h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
-                      value={draft.location}
-                      onChange={(e) => setDraft((p) => ({ ...p, location: e.target.value }))}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label data-testid="label-report-statement-month" className="text-[11px] text-muted-foreground">
-                      Statement month
-                    </label>
-                    <input
-                      data-testid="input-report-statement-month"
-                      className="mt-1 h-9 w-full rounded-md border border-border bg-background px-3 text-sm font-mono"
-                      value={draft.statementMonth}
-                      onChange={(e) => setDraft((p) => ({ ...p, statementMonth: e.target.value }))}
-                      placeholder="YYYY-MM"
-                    />
-                  </div>
-                  <div>
-                    <label data-testid="label-report-processor" className="text-[11px] text-muted-foreground">
-                      Processor
-                    </label>
-                    <input
-                      data-testid="input-report-processor"
-                      className="mt-1 h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
-                      value={draft.processor}
-                      onChange={(e) => setDraft((p) => ({ ...p, processor: e.target.value }))}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label data-testid="label-report-mid" className="text-[11px] text-muted-foreground">
-                      MID
-                    </label>
-                    <input
-                      data-testid="input-report-mid"
-                      className="mt-1 h-9 w-full rounded-md border border-border bg-background px-3 text-sm font-mono"
-                      value={draft.mid}
-                      onChange={(e) => setDraft((p) => ({ ...p, mid: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <label data-testid="label-report-volume" className="text-[11px] text-muted-foreground">
-                      Volume
-                    </label>
-                    <input
-                      data-testid="input-report-volume"
-                      className="mt-1 h-9 w-full rounded-md border border-border bg-background px-3 text-sm font-mono"
-                      value={draft.volume}
-                      onChange={(e) => setDraft((p) => ({ ...p, volume: e.target.value }))}
-                      placeholder="$0.00"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label data-testid="label-report-discount-savings" className="text-[11px] text-muted-foreground">
-                      Discount savings (est.)
-                    </label>
-                    <input
-                      data-testid="input-report-discount-savings"
-                      className="mt-1 h-9 w-full rounded-md border border-border bg-background px-3 text-sm font-mono"
-                      value={draft.discountSavings}
-                      onChange={(e) => setDraft((p) => ({ ...p, discountSavings: e.target.value }))}
-                      placeholder="$0.00"
-                    />
-                  </div>
-                  <div>
-                    <label data-testid="label-report-revenue-lost" className="text-[11px] text-muted-foreground">
-                      Revenue lost (est.)
-                    </label>
-                    <input
-                      data-testid="input-report-revenue-lost"
-                      className="mt-1 h-9 w-full rounded-md border border-border bg-background px-3 text-sm font-mono"
-                      value={draft.revenueLost}
-                      onChange={(e) => setDraft((p) => ({ ...p, revenueLost: e.target.value }))}
-                      placeholder="$0.00"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label data-testid="label-report-status" className="text-[11px] text-muted-foreground">
-                    Status
-                  </label>
-                  <div className="mt-1 flex flex-wrap gap-2">
-                    {(["Needs Review", "In Progress", "Complete"] as const).map((s) => (
-                      <button
-                        key={s}
-                        data-testid={`button-report-status-${s.replace(/\s+/g, "-").toLowerCase()}`}
-                        className={`h-9 px-3 rounded-md border text-sm transition-colors ${
-                          draft.status === s
-                            ? "bg-foreground text-background border-foreground"
-                            : "bg-background border-border hover:bg-secondary/50"
-                        }`}
-                        onClick={() => setDraft((p) => ({ ...p, status: s }))}
-                      >
-                        {s}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
+              <div className="mt-4">{editFields}</div>
             </div>
 
             <div className="md:col-span-7">

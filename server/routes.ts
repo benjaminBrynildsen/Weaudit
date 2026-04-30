@@ -531,6 +531,8 @@ export async function registerRoutes(
 
       const findings = await storage.getFindingsByAudit(auditId);
       const notices = await storage.getNoticesByAudit(auditId);
+      const companies = await storage.listCompanies();
+      const matchedCompany = matchAuditToCompany(audit, companies);
 
       const nonPciFindings = findings.filter((f) => f.type === "non_pci" && f.status !== "false_positive");
       const downgradeFindings = findings.filter(
@@ -606,7 +608,7 @@ export async function registerRoutes(
 
       res.json({
         auditId: audit.auditId,
-        merchant: audit.clientName,
+        merchant: matchedCompany?.name || audit.dba || audit.clientName,
         location: "Main location",
         statementMonth: audit.statementMonth,
         processor: (audit.processorDetected && audit.processorDetected.trim() && audit.processorDetected !== "Unknown")
