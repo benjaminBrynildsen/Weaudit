@@ -30,6 +30,10 @@ import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import type { AuditStatus } from "@/lib/api";
 import AddCompanyDialog from "@/components/AddCompanyDialog";
+import { pdf } from "@react-pdf/renderer";
+import JSZip from "jszip";
+import AuditReportDocument, { type AuditReportData } from "@/components/reports/AuditReportDocument";
+import { buildAuditPdfFileName } from "@/lib/auditFileName";
 
 type GatewayLevel = "II" | "III";
 
@@ -310,6 +314,11 @@ export default function BulkAudit() {
   // success handler knows which row to mark matched.
   const [addCompanyForEntry, setAddCompanyForEntry] = useState<BulkFileEntry | null>(null);
 
+  // "Generate all" state — drives the loading badge + button disabled.
+  // null when idle, otherwise { current, total } so the progress badge
+  // can render "Generating 7/24…" while the zip is being built.
+  const [generateAllProgress, setGenerateAllProgress] = useState<{ current: number; total: number } | null>(null);
+
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(true);
@@ -363,6 +372,74 @@ export default function BulkAudit() {
   const removeEntry = (id: string) => {
     setEntries((prev) => prev.filter((e) => e.id !== id));
   };
+
+  /**
+   * Generate all eligible reports as a single ZIP. Eligible = the row
+   * has an auditId AND is in a terminal state the auditor can ship
+   * (complete or needs_review). Skips errors / queued / in-flight rows.
+   *
+   * Sequential rather than parallel: @react-pdf/renderer runs on the
+   * main thread and a 50-statement batch already takes a few seconds
+   * each — parallelizing would lock the UI without saving wall time.
+   */
+  const generateAll = useCallback(async () => {
+    const eligible = entries.filter(
+      (e) => e.auditId && (e.status === "complete" || e.status === "needs_review"),
+    );
+    if (eligible.length === 0) {
+      toast({
+        title: "Nothing to generate",
+        description: "No completed audits in the queue yet.",
+      });
+      return;
+    }
+
+    setGenerateAllProgress({ current: 0, total: eligible.length });
+    const zip = new JSZip();
+    const failures: string[] = [];
+
+    for (let i = 0; i < eligible.length; i++) {
+      const entry = eligible[i];
+      setGenerateAllProgress({ current: i, total: eligible.length });
+      try {
+        const res = await fetch(`/api/reports/${entry.auditId}`, { credentials: "include" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as AuditReportData;
+        const blob = await pdf(<AuditReportDocument data={data} />).toBlob();
+        const fileName = buildAuditPdfFileName(data.merchant, data.statementMonth, data.mid);
+        zip.file(fileName, blob);
+      } catch (err) {
+        failures.push(entry.merchant || entry.fileName);
+        console.error(`Generate-all failed for ${entry.auditId}:`, err);
+      }
+    }
+
+    setGenerateAllProgress({ current: eligible.length, total: eligible.length });
+    const zipBlob = await zip.generateAsync({ type: "blob" });
+
+    // Name the bundle with today's date so multiple batches don't collide.
+    const today = new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" })
+      .format(new Date());
+    const zipName = `WeAudit Bulk Audits ${today}.zip`;
+    const url = URL.createObjectURL(zipBlob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = zipName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+
+    setGenerateAllProgress(null);
+    toast({
+      title: failures.length === 0 ? "Bulk reports generated" : "Bulk reports generated with errors",
+      description:
+        failures.length === 0
+          ? `Downloaded ${eligible.length} report${eligible.length === 1 ? "" : "s"} as ${zipName}.`
+          : `Downloaded ${eligible.length - failures.length} of ${eligible.length}. Failed: ${failures.slice(0, 3).join(", ")}${failures.length > 3 ? "…" : ""}`,
+      variant: failures.length === 0 ? "default" : "destructive",
+    });
+  }, [entries, toast]);
 
   const clearCompleted = () => {
     // Anything in a terminal state from the auditor's perspective:
@@ -664,12 +741,40 @@ export default function BulkAudit() {
                 })()}
               </div>
               <div className="flex items-center gap-2">
-                {completedFiles > 0 && !isRunning && (
+                {(() => {
+                  // Show Generate all whenever there's at least one
+                  // ship-ready row. Hidden during the scan run so the
+                  // header isn't crowded with conflicting actions.
+                  const eligibleCount = entries.filter(
+                    (e) => e.auditId && (e.status === "complete" || e.status === "needs_review"),
+                  ).length;
+                  if (isRunning || eligibleCount === 0) return null;
+                  if (generateAllProgress) {
+                    return (
+                      <Badge variant="outline" className="text-blue-700 bg-blue-500/10 border-blue-500/20">
+                        <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                        Generating {generateAllProgress.current}/{generateAllProgress.total}…
+                      </Badge>
+                    );
+                  }
+                  return (
+                    <Button
+                      data-testid="button-generate-all"
+                      size="sm"
+                      onClick={generateAll}
+                      className="border border-primary/30"
+                    >
+                      <Download className="w-3.5 h-3.5 mr-1.5" />
+                      Generate all ({eligibleCount})
+                    </Button>
+                  );
+                })()}
+                {completedFiles > 0 && !isRunning && !generateAllProgress && (
                   <Button variant="ghost" size="sm" onClick={clearCompleted}>
                     Clear completed
                   </Button>
                 )}
-                {entries.length > 0 && !isRunning && (
+                {entries.length > 0 && !isRunning && !generateAllProgress && (
                   <Button variant="ghost" size="sm" onClick={startNewBatch}>
                     Start new batch
                   </Button>
