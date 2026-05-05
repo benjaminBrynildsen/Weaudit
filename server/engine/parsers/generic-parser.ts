@@ -11,6 +11,11 @@ export class GenericParser extends BaseStatementParser {
   // Bare decimal rate (no % sign) — typically in grid lines like "0.0315"
   // Use negative lookbehind to exclude dollar amounts like "$0.100"
   private readonly BARE_RATE_RE = /(?<!\$)(0\.\d{3,4})\b/g;
+  // # of Trans column in interchange detail lines. Format:
+  //   MC-BUS LEVEL 5 DATA RATE I $2,560.39 7% 5 10% 0.0300 $0.100 -$77.31
+  // The integer between the volume %-of-total and the trans %-of-total
+  // is the underlying transaction count (5 here).
+  private readonly TRANS_COUNT_RE = /\$[\d,]+\.\d{2}\s+\d+(?:\.\d+)?%\s+(\d+)\s+\d+(?:\.\d+)?%/;
 
   normalizePages(pages: ParsedPage[]): NormalizedLine[] {
     const lines: NormalizedLine[] = [];
@@ -50,6 +55,14 @@ export class GenericParser extends BaseStatementParser {
           rate = this.parseRate(bareRates[bareRates.length - 1]) * 100;
         }
 
+        // Pull the # of Trans column for interchange grid lines so the
+        // report shows the real transaction count instead of 1 per row.
+        let transactionCount: number | undefined;
+        if (isGridLine) {
+          const m = raw.match(this.TRANS_COUNT_RE);
+          if (m) transactionCount = parseInt(m[1], 10);
+        }
+
         // Only include lines that have an amount or rate (fee-like lines)
         if (amount > 0 || rate > 0) {
           lines.push({
@@ -59,6 +72,7 @@ export class GenericParser extends BaseStatementParser {
             page: page.pageNum,
             lineNum: i + 1,
             amountIsVolume: isGridLine,
+            transactionCount,
           });
         }
       }

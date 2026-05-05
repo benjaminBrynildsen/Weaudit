@@ -13,6 +13,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   UploadCloud,
   FileText,
   CheckCircle2,
@@ -58,6 +68,10 @@ type BulkFileEntry = {
   // Populated alongside `findings` when the post-scan summary is fetched.
   // `undefined` = not checked yet; `false` = no match → show "Add" button.
   companyMatched?: boolean;
+  // Gateway level the most recent scan ran with. Mirrors the page-level
+  // default at upload time, but can drift per-row when the auditor
+  // changes it via the Add Company dialog (which patches + rescans).
+  gatewayLevel?: GatewayLevel;
   error?: string;
 };
 
@@ -338,6 +352,14 @@ export default function BulkAudit() {
   // can render "Generating 7/24…" while the zip is being built.
   const [generateAllProgress, setGenerateAllProgress] = useState<{ current: number; total: number } | null>(null);
 
+  // Partial-review confirmation: opens when the auditor hits "Generate
+  // full batch" but some audits in the queue haven't been marked
+  // reviewed yet. Lets them ship just the reviewed ones or bail out.
+  const [partialDialog, setPartialDialog] = useState<{
+    reviewed: number;
+    unreviewed: number;
+  } | null>(null);
+
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(true);
@@ -393,9 +415,11 @@ export default function BulkAudit() {
   };
 
   /**
-   * Generate all eligible reports as a single ZIP. Eligible = the row
-   * has an auditId AND is in a terminal state the auditor can ship
-   * (complete or needs_review). Skips errors / queued / in-flight rows.
+   * Generate all reviewed reports as a single ZIP. Eligible = the row
+   * has an auditId AND is in a terminal state (complete or
+   * needs_review) AND has been marked reviewed. We never ship an
+   * unreviewed audit from the batch action — partial-review gating
+   * happens at the call site (see triggerGenerateBatch).
    *
    * Sequential rather than parallel: @react-pdf/renderer runs on the
    * main thread and a 50-statement batch already takes a few seconds
@@ -403,12 +427,15 @@ export default function BulkAudit() {
    */
   const generateAll = useCallback(async () => {
     const eligible = entries.filter(
-      (e) => e.auditId && (e.status === "complete" || e.status === "needs_review"),
+      (e) =>
+        e.auditId &&
+        (e.status === "complete" || e.status === "needs_review") &&
+        reviewedAudits.has(e.auditId),
     );
     if (eligible.length === 0) {
       toast({
         title: "Nothing to generate",
-        description: "No completed audits in the queue yet.",
+        description: "Mark at least one audit reviewed before generating.",
       });
       return;
     }
@@ -458,7 +485,31 @@ export default function BulkAudit() {
           : `Downloaded ${eligible.length - failures.length} of ${eligible.length}. Failed: ${failures.slice(0, 3).join(", ")}${failures.length > 3 ? "…" : ""}`,
       variant: failures.length === 0 ? "default" : "destructive",
     });
-  }, [entries, toast]);
+  }, [entries, reviewedAudits, toast]);
+
+  // Entry point for the "Generate full batch" action. If any
+  // ready-to-ship audit hasn't been reviewed yet, open the
+  // partial-review dialog instead of going straight to generateAll.
+  const triggerGenerateBatch = useCallback(() => {
+    const ready = entries.filter(
+      (e) => e.auditId && (e.status === "complete" || e.status === "needs_review"),
+    );
+    const reviewed = ready.filter((e) => reviewedAudits.has(e.auditId!));
+    const unreviewed = ready.filter((e) => !reviewedAudits.has(e.auditId!));
+
+    if (reviewed.length === 0) {
+      toast({
+        title: "Nothing reviewed yet",
+        description: "Mark at least one audit reviewed before generating.",
+      });
+      return;
+    }
+    if (unreviewed.length > 0) {
+      setPartialDialog({ reviewed: reviewed.length, unreviewed: unreviewed.length });
+      return;
+    }
+    void generateAll();
+  }, [entries, reviewedAudits, generateAll, toast]);
 
   const clearCompleted = () => {
     // Anything in a terminal state from the auditor's perspective:
@@ -489,6 +540,42 @@ export default function BulkAudit() {
 
   // Poll audit status until it finishes. Throws on "failed" so the caller's
   // catch can surface the error; swallows transient fetch errors and retries.
+  // Pull the post-scan one-line summary the row shows. Same logic the
+  // detail page uses (non-PCI count + downgrade count + revenue lost),
+  // shared between the upload loop and the rescan-after-level-change
+  // path so the row always shows consistent numbers.
+  const fetchAuditSummary = useCallback(async (auditId: string) => {
+    try {
+      const detailRes = await fetch(`/api/audits/${auditId}`, { credentials: "include" });
+      if (!detailRes.ok) return null;
+      const detail = await detailRes.json();
+      const findings: Array<{ type: string; status: string; needsReview?: boolean; amount: number; spread?: number; rate: number }> =
+        detail.findings || [];
+      const nonPci = findings.filter((f) => f.type === "non_pci" && f.status !== "false_positive");
+      const downgrades = findings.filter(
+        (f) => f.type === "downgrade" && f.status !== "false_positive" && !f.needsReview,
+      );
+      const serviceCharges = findings.filter((f) => f.type === "service_charge" && f.status !== "false_positive");
+      const totalNonPci = nonPci.reduce((s, f) => s + (f.amount || 0), 0);
+      const totalDowngrade = downgrades.reduce((s, f) => s + (f.spread || 0), 0);
+      const totalServiceCharge = serviceCharges
+        .filter((f) => f.spread != null && f.spread > 0)
+        .reduce((s, f) => s + (f.rate > 0 ? f.amount * (f.spread || 0) / f.rate : 0), 0);
+      return {
+        findings: {
+          nonPci: nonPci.length,
+          downgrades: downgrades.length,
+          revenueLost: totalNonPci + totalDowngrade + totalServiceCharge,
+        },
+        merchant: (detail.dba || detail.clientName) as string | undefined,
+        processorDetected: detail.processorDetected as string | undefined,
+        companyMatched: detail.companyMatch?.matched === true,
+      };
+    } catch {
+      return null;
+    }
+  }, []);
+
   const waitForAudit = useCallback(async (auditId: string): Promise<AuditStatus> => {
     for (let i = 0; i < 120; i++) {
       await new Promise((r) => setTimeout(r, 2000));
@@ -551,42 +638,7 @@ export default function BulkAudit() {
 
         // Wait for scan to finish
         const finalStatus = await waitForAudit(auditId);
-
-        // Pull the audit + findings so we can show a one-line summary
-        // inline (matches what /api/reports/:auditId computes for the
-        // detail page: non-PCI count + downgrade count + revenue lost $).
-        let summary: BulkFileEntry["findings"];
-        let merchant: string | undefined;
-        let processorDetected: string | undefined;
-        let companyMatched: boolean | undefined;
-        try {
-          const detailRes = await fetch(`/api/audits/${auditId}`, { credentials: "include" });
-          if (detailRes.ok) {
-            const detail = await detailRes.json();
-            const findings: Array<{ type: string; status: string; needsReview?: boolean; amount: number; spread?: number; rate: number }> =
-              detail.findings || [];
-            const nonPci = findings.filter((f) => f.type === "non_pci" && f.status !== "false_positive");
-            const downgrades = findings.filter(
-              (f) => f.type === "downgrade" && f.status !== "false_positive" && !f.needsReview,
-            );
-            const serviceCharges = findings.filter((f) => f.type === "service_charge" && f.status !== "false_positive");
-            const totalNonPci = nonPci.reduce((s, f) => s + (f.amount || 0), 0);
-            const totalDowngrade = downgrades.reduce((s, f) => s + (f.spread || 0), 0);
-            const totalServiceCharge = serviceCharges
-              .filter((f) => f.spread != null && f.spread > 0)
-              .reduce((s, f) => s + (f.rate > 0 ? f.amount * (f.spread || 0) / f.rate : 0), 0);
-            summary = {
-              nonPci: nonPci.length,
-              downgrades: downgrades.length,
-              revenueLost: totalNonPci + totalDowngrade + totalServiceCharge,
-            };
-            merchant = detail.dba || detail.clientName;
-            processorDetected = detail.processorDetected;
-            companyMatched = detail.companyMatch?.matched === true;
-          }
-        } catch {
-          // Summary is best-effort — don't fail the whole entry if it can't load.
-        }
+        const summary = await fetchAuditSummary(auditId);
 
         setEntries((prev) =>
           prev.map((e) =>
@@ -595,10 +647,11 @@ export default function BulkAudit() {
                   ...e,
                   status: finalStatus === "complete" ? "complete" as BulkFileStatus : "needs_review" as BulkFileStatus,
                   progress: 100,
-                  findings: summary,
-                  merchant: merchant || e.merchant,
-                  processorDetected: processorDetected || e.processorDetected,
-                  companyMatched,
+                  gatewayLevel,
+                  findings: summary?.findings,
+                  merchant: summary?.merchant || e.merchant,
+                  processorDetected: summary?.processorDetected || e.processorDetected,
+                  companyMatched: summary?.companyMatched,
                 }
               : e,
           ),
@@ -619,7 +672,7 @@ export default function BulkAudit() {
       title: "Bulk audit complete",
       description: `Processed ${queued.length} file${queued.length !== 1 ? "s" : ""}.`,
     });
-  }, [entries, isRunning, toast, waitForAudit, gatewayLevel]);
+  }, [entries, isRunning, toast, waitForAudit, fetchAuditSummary, gatewayLevel]);
 
   // Auto-start the run as soon as files land in the queue. Re-entry
   // is gated by isRunning (set inside startBulkUpload), so additional
@@ -911,6 +964,49 @@ export default function BulkAudit() {
               </div>
               <div className="flex items-center gap-2">
                 {(() => {
+                  // Generate full batch: ships every ready audit as
+                  // one ZIP. Hidden while a run is in flight (rows are
+                  // still moving) and disabled when the queue has
+                  // nothing terminal yet. Partial-review confirmation
+                  // is handled inside triggerGenerateBatch.
+                  const ready = entries.filter(
+                    (e) => e.auditId && (e.status === "complete" || e.status === "needs_review"),
+                  );
+                  if (isRunning || ready.length === 0) return null;
+                  const reviewedCount = ready.filter((e) => reviewedAudits.has(e.auditId!)).length;
+                  return (
+                    <Button
+                      data-testid="button-generate-full-batch"
+                      size="sm"
+                      variant="outline"
+                      className={
+                        reviewedCount > 0
+                          ? "border-primary/30 text-primary hover:bg-primary/10"
+                          : "border-transparent text-muted-foreground hover:bg-secondary/50"
+                      }
+                      onClick={triggerGenerateBatch}
+                      disabled={!!generateAllProgress}
+                      title={
+                        reviewedCount === 0
+                          ? "Mark audits reviewed to enable batch generation"
+                          : "Generate every reviewed audit as a single ZIP"
+                      }
+                    >
+                      {generateAllProgress ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                          Generating {generateAllProgress.current}/{generateAllProgress.total}…
+                        </>
+                      ) : (
+                        <>
+                          <Download className="w-3.5 h-3.5 mr-1.5" />
+                          Generate full batch ({reviewedCount}/{ready.length})
+                        </>
+                      )}
+                    </Button>
+                  );
+                })()}
+                {(() => {
                   // Continue to Generate appears as soon as the auditor
                   // has marked at least one audit reviewed. Funnels them
                   // into the phase-2 grid, which is the canonical place
@@ -1105,23 +1201,35 @@ export default function BulkAudit() {
                         );
                       })()
                     )}
-                    {(entry.status === "complete" || entry.status === "needs_review") && entry.auditId && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="border-primary/30 text-primary hover:bg-primary/10"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          // Open the report editor in fullscreen mode.
-                          // `from=bulk` routes the back button to /bulk-audit.
-                          setLocation(`/report?auditId=${entry.auditId}&fullscreen=1&from=bulk`);
-                        }}
-                        title="Open the report editor and generate the official PDF"
-                      >
-                        <Download className="w-3.5 h-3.5 mr-1.5" />
-                        Generate
-                      </Button>
-                    )}
+                    {(entry.status === "complete" || entry.status === "needs_review") && entry.auditId && (() => {
+                      // Generate stays visible the whole time but only
+                      // lights up once the row is reviewed — keeps the
+                      // workflow obvious without removing the escape hatch.
+                      const isReviewed = !!entry.auditId && reviewedAudits.has(entry.auditId);
+                      return (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className={
+                            isReviewed
+                              ? "border-primary/30 text-primary hover:bg-primary/10"
+                              : "border-transparent text-muted-foreground hover:bg-secondary/50"
+                          }
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setLocation(`/report?auditId=${entry.auditId}&fullscreen=1&from=bulk`);
+                          }}
+                          title={
+                            isReviewed
+                              ? "Open the report editor and generate the official PDF"
+                              : "Mark this audit reviewed to enable generation"
+                          }
+                        >
+                          <Download className="w-3.5 h-3.5 mr-1.5" />
+                          Generate
+                        </Button>
+                      );
+                    })()}
                     {entry.status === "queued" && (
                       <Button
                         size="icon"
@@ -1148,20 +1256,90 @@ export default function BulkAudit() {
         onOpenChange={(o) => { if (!o) setAddCompanyForEntry(null); }}
         defaultName={addCompanyForEntry?.merchant || addCompanyForEntry?.fileName.replace(/\.[^.]+$/, "") || ""}
         defaultProcessor={addCompanyForEntry?.processorDetected}
+        defaultGatewayLevel={addCompanyForEntry?.gatewayLevel ?? gatewayLevel}
         fromAuditId={addCompanyForEntry?.auditId}
-        onCreated={() => {
-          // Mark the row as matched so the button hides without a refetch
-          if (addCompanyForEntry) {
+        onCreated={(_company, opts) => {
+          const targetEntry = addCompanyForEntry;
+          if (!targetEntry) return;
+
+          // Mark matched immediately so the "Add company" button hides.
+          setEntries((prev) =>
+            prev.map((e) =>
+              e.id === targetEntry.id
+                ? { ...e, companyMatched: true, gatewayLevel: opts.gatewayLevel }
+                : e,
+            ),
+          );
+
+          // If the dialog kicked off a rescan (level changed), flip the
+          // row back to "scanning" and refetch the summary when it lands
+          // so the auditor sees the corrected findings without a manual
+          // refresh.
+          if (opts.rescanStarted && targetEntry.auditId) {
+            const auditId = targetEntry.auditId;
             setEntries((prev) =>
               prev.map((e) =>
-                e.id === addCompanyForEntry.id
-                  ? { ...e, companyMatched: true }
+                e.id === targetEntry.id
+                  ? { ...e, status: "scanning" as BulkFileStatus, progress: 40, findings: undefined }
                   : e,
               ),
             );
+            (async () => {
+              try {
+                const finalStatus = await waitForAudit(auditId);
+                const summary = await fetchAuditSummary(auditId);
+                setEntries((prev) =>
+                  prev.map((e) =>
+                    e.id === targetEntry.id
+                      ? {
+                          ...e,
+                          status: finalStatus === "complete" ? "complete" as BulkFileStatus : "needs_review" as BulkFileStatus,
+                          progress: 100,
+                          findings: summary?.findings,
+                          merchant: summary?.merchant || e.merchant,
+                          processorDetected: summary?.processorDetected || e.processorDetected,
+                        }
+                      : e,
+                  ),
+                );
+              } catch (err) {
+                setEntries((prev) =>
+                  prev.map((e) =>
+                    e.id === targetEntry.id
+                      ? { ...e, status: "error" as BulkFileStatus, error: (err as Error).message }
+                      : e,
+                  ),
+                );
+              }
+            })();
           }
         }}
       />
+
+      <AlertDialog open={!!partialDialog} onOpenChange={(o) => { if (!o) setPartialDialog(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Some audits aren't reviewed yet</AlertDialogTitle>
+            <AlertDialogDescription>
+              {partialDialog
+                ? `${partialDialog.reviewed} of ${partialDialog.reviewed + partialDialog.unreviewed} audits in this batch have been marked reviewed. Generate just the reviewed ones now, or finish review first?`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Finish review first</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="button-confirm-generate-partial"
+              onClick={() => {
+                setPartialDialog(null);
+                void generateAll();
+              }}
+            >
+              Generate partial batch{partialDialog ? ` (${partialDialog.reviewed})` : ""}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DashboardLayout>
   );
 }

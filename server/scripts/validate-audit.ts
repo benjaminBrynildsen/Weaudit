@@ -56,11 +56,10 @@ type RunResult = {
   totalRevenueLost: number;
 };
 
-async function runOne(
-  pdfPath: string,
-  gatewayLevel: "II" | "III" | undefined,
-  taxExempt: boolean,
-): Promise<RunResult> {
+// Parse + normalize a PDF once, then call `runDetection` per gateway
+// level. Splitting these halves the wall-clock cost of dual-level runs
+// since the PDF parse is the slow part.
+async function parseStatement(pdfPath: string) {
   const { pages, fullText } = await parsePdf(pdfPath);
 
   const genericParser = StatementParserFactory.createParser(undefined);
@@ -71,13 +70,26 @@ async function runOne(
   const normalizedLines = parser.normalizePages(pages);
   const fields = parser.extractFields(pages);
 
+  const interchangeSection = detectInterchangeSection(normalizedLines, fullText);
+  const interchangeLines = filterInterchangeLines(normalizedLines, interchangeSection);
+
+  return { pages, fullText, processorName, normalizedLines, interchangeLines, fields };
+}
+
+type ParsedStatement = Awaited<ReturnType<typeof parseStatement>>;
+
+function runDetection(
+  pdfPath: string,
+  parsed: ParsedStatement,
+  gatewayLevel: "II" | "III" | undefined,
+  taxExempt: boolean,
+): RunResult {
+  const { processorName, normalizedLines, interchangeLines, fields } = parsed;
+
   const adjustedVolume = (fields.totalVolume || 0) - (fields.amexVolume || 0);
   const adjustedFees = (fields.totalFees || 0) - (fields.amexFees || 0);
   const effectiveRate =
     adjustedVolume > 0 ? adjustedFees / adjustedVolume : fields.effectiveRate || 0;
-
-  const interchangeSection = detectInterchangeSection(normalizedLines, fullText);
-  const interchangeLines = filterInterchangeLines(normalizedLines, interchangeSection);
 
   const { matchedIndices: nonPciIndices, results: nonPciResults } =
     detectNonPci(normalizedLines);
@@ -121,14 +133,15 @@ async function runOne(
   for (const d of downgrades) {
     const g = groups.get(d.title);
     const spread = d.spread ?? 0;
+    const trans = d.transactionCount ?? 1;
     if (g) {
-      g.trans += 1;
+      g.trans += trans;
       g.volume += d.amount;
       g.revenueLost += spread;
     } else {
       groups.set(d.title, {
         title: d.title,
-        trans: 1,
+        trans,
         volume: d.amount,
         rate: d.rate,
         targetRate: d.targetRate ?? 0,
@@ -156,6 +169,15 @@ async function runOne(
     nonPciCount: nonPciResults.length,
     totalRevenueLost,
   };
+}
+
+async function runOne(
+  pdfPath: string,
+  gatewayLevel: "II" | "III" | undefined,
+  taxExempt: boolean,
+): Promise<RunResult> {
+  const parsed = await parseStatement(pdfPath);
+  return runDetection(pdfPath, parsed, gatewayLevel, taxExempt);
 }
 
 function money(n: number): string {
@@ -233,12 +255,27 @@ async function main() {
     process.exit(1);
   }
 
+  // When no level is specified the harness has no per-merchant gateway
+  // signal (the real upload UI sets this; Amanda's reference PDFs encode
+  // it in the title with -L2/-L3). Run both views side-by-side so the
+  // batch comparison can pick whichever level matches the reference.
+  const levels: (("II" | "III") | undefined)[] = levelArg ? [levelArg] : ["II", "III"];
+
   for (const t of targets) {
+    let parsed: ParsedStatement;
     try {
-      const result = await runOne(t, levelArg, taxExempt);
-      printResult(result);
+      parsed = await parseStatement(t);
     } catch (err) {
-      console.error(`\n!! Failed on ${t}:`, (err as Error).message);
+      console.error(`\n!! Failed to parse ${t}:`, (err as Error).message);
+      continue;
+    }
+    for (const lvl of levels) {
+      try {
+        const result = runDetection(t, parsed, lvl, taxExempt);
+        printResult(result);
+      } catch (err) {
+        console.error(`\n!! Failed on ${t} (level ${lvl ?? "all"}):`, (err as Error).message);
+      }
     }
   }
 }

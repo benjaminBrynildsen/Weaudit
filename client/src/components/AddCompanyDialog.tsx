@@ -3,8 +3,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Building2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+
+export type GatewayLevel = "II" | "III";
 
 /**
  * Minimum-info "Add company" dialog used by the post-scan prompt on
@@ -21,11 +24,14 @@ export interface AddCompanyDialogProps {
   defaultName?: string;
   defaultMid?: string;
   defaultProcessor?: string;
+  defaultGatewayLevel?: GatewayLevel;
   // Audit that prompted the create. When supplied, the server backfills
   // this audit's MID with the canonical one we're about to save (mirrors
-  // the in-scan partial-MID promotion in runner.ts).
+  // the in-scan partial-MID promotion in runner.ts) and — when the user
+  // changed the gateway level — patches + rescans the audit so the row
+  // on the page picks up the corrected level without a manual re-upload.
   fromAuditId?: string;
-  onCreated?: (company: { companyId: string; name: string; mid: string }) => void;
+  onCreated?: (company: { companyId: string; name: string; mid: string }, opts: { gatewayLevel: GatewayLevel; rescanStarted: boolean }) => void;
 }
 
 export default function AddCompanyDialog({
@@ -34,6 +40,7 @@ export default function AddCompanyDialog({
   defaultName,
   defaultMid,
   defaultProcessor,
+  defaultGatewayLevel,
   fromAuditId,
   onCreated,
 }: AddCompanyDialogProps) {
@@ -41,6 +48,7 @@ export default function AddCompanyDialog({
   const [name, setName] = useState(defaultName ?? "");
   const [mid, setMid] = useState(defaultMid ?? "");
   const [aliases, setAliases] = useState("");
+  const [gatewayLevel, setGatewayLevel] = useState<GatewayLevel>(defaultGatewayLevel ?? "II");
   const [submitting, setSubmitting] = useState(false);
 
   // Refresh form fields when the dialog opens against a different audit.
@@ -49,8 +57,9 @@ export default function AddCompanyDialog({
       setName(defaultName ?? "");
       setMid(defaultMid ?? "");
       setAliases("");
+      setGatewayLevel(defaultGatewayLevel ?? "II");
     }
-  }, [open, defaultName, defaultMid]);
+  }, [open, defaultName, defaultMid, defaultGatewayLevel]);
 
   const submit = async () => {
     if (!name.trim()) {
@@ -71,7 +80,7 @@ export default function AddCompanyDialog({
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
-        auditLevel: "Level II",
+        auditLevel: gatewayLevel === "III" ? "Level III" : "Level II",
         auditor: "",
         paymentMethod: "",
         csm: "",
@@ -111,8 +120,37 @@ export default function AddCompanyDialog({
         throw new Error(text || `Save failed (${res.status})`);
       }
       const company = await res.json();
-      toast({ title: "Company added", description: `${company.name} is in the database.` });
-      onCreated?.(company);
+
+      // If the chosen level differs from what the audit already has,
+      // patch + rescan so the row on the page reflects the right rule
+      // set without a manual re-upload. The level the dialog opens with
+      // is the audit's current level, so any change means a real switch.
+      const levelChanged = !!fromAuditId && gatewayLevel !== (defaultGatewayLevel ?? "II");
+      if (levelChanged) {
+        try {
+          await fetch(`/api/audits/${fromAuditId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ gatewayLevel }),
+            credentials: "include",
+          });
+          await fetch(`/api/audits/${fromAuditId}/scan`, {
+            method: "POST",
+            credentials: "include",
+          });
+        } catch (e) {
+          // Non-fatal: company saved, just couldn't kick the rescan.
+          console.warn("Rescan after level change failed:", e);
+        }
+      }
+
+      toast({
+        title: "Company added",
+        description: levelChanged
+          ? `${company.name} saved. Re-scanning at Level ${gatewayLevel}…`
+          : `${company.name} is in the database.`,
+      });
+      onCreated?.(company, { gatewayLevel, rescanStarted: levelChanged });
       onOpenChange(false);
     } catch (e) {
       toast({
@@ -172,6 +210,21 @@ export default function AddCompanyDialog({
             />
             <p className="text-xs text-muted-foreground">
               Optional — alternate names this merchant appears under in statements.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="add-co-level">Gateway level</Label>
+            <Select value={gatewayLevel} onValueChange={(v) => setGatewayLevel(v as GatewayLevel)}>
+              <SelectTrigger id="add-co-level">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="II">Level II</SelectItem>
+                <SelectItem value="III">Level III</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Saved on the company so future audits auto-detect, and applied to this audit (rescans if changed).
             </p>
           </div>
         </div>
