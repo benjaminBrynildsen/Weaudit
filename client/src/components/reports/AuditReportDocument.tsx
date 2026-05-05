@@ -256,27 +256,6 @@ const styles = StyleSheet.create({
   col5: { width: "13%", textAlign: "right" },
   col6: { width: "17%", textAlign: "right" },
 
-  /* ── Section heading ── */
-  sectionHeading: {
-    fontSize: 10,
-    fontWeight: 700,
-    color: C.text,
-    marginTop: 18,
-    marginBottom: 4,
-  },
-  sectionDivider: {
-    height: 1,
-    backgroundColor: C.divider,
-    marginBottom: 4,
-  },
-
-  /* ── Service-charge table columns ── */
-  sc1: { width: "40%" },
-  sc2: { width: "15%", textAlign: "right" },
-  sc3: { width: "15%", textAlign: "right" },
-  sc4: { width: "12%", textAlign: "center" },
-  sc5: { width: "18%", textAlign: "right" },
-
   /* ── Footer ── */
   footer: {
     position: "absolute",
@@ -355,32 +334,6 @@ function NonPciRow({ row }: { row: FindingRow }) {
   );
 }
 
-function ServiceChargeRow({ row }: { row: ServiceChargeRow }) {
-  const fmt = (n: number) =>
-    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
-  return (
-    <View style={styles.miniTable} wrap={false}>
-      <View style={styles.miniHeader}>
-        <Text style={[styles.miniHeaderText, styles.sc1]}>Service Charge</Text>
-        <Text style={[styles.miniHeaderText, styles.sc2]}>Charged</Text>
-        <Text style={[styles.miniHeaderText, styles.sc3]}>Contracted</Text>
-        <Text style={[styles.miniHeaderText, styles.sc4]}>Status</Text>
-        <Text style={[styles.miniHeaderText, styles.sc5]}>Overcharge</Text>
-      </View>
-      <View style={styles.miniRow}>
-        <Text style={[styles.miniCell, styles.sc1]}>{row.label}</Text>
-        <Text style={[styles.miniCell, styles.sc2]}>{row.chargedRate.toFixed(4)}%</Text>
-        <Text style={[styles.miniCell, styles.sc3]}>{row.contractedRate.toFixed(4)}%</Text>
-        <Text style={[styles.miniCell, styles.sc4]}>{row.overcharge ? "OVER" : "OK"}</Text>
-        <Text style={[styles.miniCell, styles.sc5]}>
-          {row.overcharge ? fmt(row.overchargeAmount) : "—"}
-        </Text>
-      </View>
-      {row.rawLine && <Text style={styles.miniReason}>{row.rawLine}</Text>}
-    </View>
-  );
-}
-
 export default function AuditReportDocument({ data }: { data: AuditReportData }) {
   const merchantLine = buildMerchantId(data.merchant, data.mid, data.gatewayLevel);
   const scOvercharges = data.flags.serviceChargeOvercharges ?? 0;
@@ -389,7 +342,6 @@ export default function AuditReportDocument({ data }: { data: AuditReportData })
     const order = { High: 0, Medium: 1, Low: 2 };
     return (order[a.severity ?? "Low"] ?? 2) - (order[b.severity ?? "Low"] ?? 2);
   });
-  const serviceCharges = data.findings.serviceCharges ?? [];
 
   return (
     <Document>
@@ -474,17 +426,6 @@ export default function AuditReportDocument({ data }: { data: AuditReportData })
         {downgrades.map((r, i) => (
           <DowngradeRow key={`dg-${i}`} row={r} />
         ))}
-
-        {/* ── Service charges ── */}
-        {serviceCharges.length > 0 && (
-          <>
-            <Text style={styles.sectionHeading}>Service Charges</Text>
-            <View style={styles.sectionDivider} />
-            {serviceCharges.map((r, i) => (
-              <ServiceChargeRow key={`sc-${i}`} row={r} />
-            ))}
-          </>
-        )}
 
         {/* ── Footer ── */}
         <View style={styles.footer} fixed>
