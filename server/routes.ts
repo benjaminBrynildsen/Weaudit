@@ -606,11 +606,27 @@ export async function registerRoutes(
       const adjustedVolume = (audit.totalVolume || 0) - (audit.amexVolume || 0);
       const adjustedFees = (audit.totalFees || 0) - (audit.amexFees || 0);
 
+      // Older audits scanned before the runner started auto-filling
+      // statementMonth from the parsed period still have it blank in the
+      // DB. Derive at read time so the report header doesn't ship
+      // empty-string for those rows.
+      const monthFromPeriod = (() => {
+        if (audit.statementMonth?.trim()) return audit.statementMonth;
+        const m = audit.statementPeriod?.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+        if (!m) return audit.statementMonth || "";
+        const month = parseInt(m[1], 10);
+        let year = parseInt(m[3], 10);
+        if (!Number.isFinite(month) || month < 1 || month > 12) return audit.statementMonth || "";
+        if (year < 100) year += 2000;
+        const names = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+        return `${names[month - 1]} ${year}`;
+      })();
+
       res.json({
         auditId: audit.auditId,
         merchant: matchedCompany?.name || audit.dba || audit.clientName,
         location: "Main location",
-        statementMonth: audit.statementMonth,
+        statementMonth: monthFromPeriod,
         processor: (audit.processorDetected && audit.processorDetected.trim() && audit.processorDetected !== "Unknown")
           ? audit.processorDetected
           : audit.processor,

@@ -8,6 +8,25 @@ import { detectInterchangeSection, filterInterchangeLines } from "./section-dete
 import { StatementParserFactory } from "./parsers/parser-factory";
 import { matchAuditToCompany } from "./match-company";
 
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+// Derive a human "Month YYYY" label from a parsed statement period
+// like "02/01/2026 – 02/28/2026" so the audit's statementMonth can
+// auto-fill when the upload form left it blank (typical for bulk).
+function deriveStatementMonth(period: string | undefined): string | undefined {
+  if (!period) return undefined;
+  const m = period.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if (!m) return undefined;
+  const month = parseInt(m[1], 10);
+  let year = parseInt(m[3], 10);
+  if (!Number.isFinite(month) || month < 1 || month > 12) return undefined;
+  if (year < 100) year += 2000;
+  return `${MONTH_NAMES[month - 1]} ${year}`;
+}
+
 export async function runAuditScan(auditId: string): Promise<void> {
   // Update status to scanning. Any stale errorMessage from a previous run
   // stays in the column but is only surfaced when status === "failed", so
@@ -77,6 +96,15 @@ export async function runAuditScan(auditId: string): Promise<void> {
     const adjustedFees = (finalFields.totalFees || 0) - (finalFields.amexFees || 0);
     const effectiveRate = adjustedVolume > 0 ? adjustedFees / adjustedVolume : finalFields.effectiveRate;
 
+    // Auto-fill statementMonth when the upload didn't supply one (the
+    // bulk upload form skips it, single-file Upload requires it). Only
+    // fills when the audit currently has nothing — never overwrites a
+    // value the user entered themselves.
+    const currentAudit = await storage.getAudit(auditId);
+    const derivedMonth = !currentAudit?.statementMonth?.trim()
+      ? deriveStatementMonth(finalFields.statementPeriod)
+      : undefined;
+
     await storage.updateAudit(auditId, {
       dba: finalFields.dba,
       mid: finalFields.mid || undefined,
@@ -87,6 +115,7 @@ export async function runAuditScan(auditId: string): Promise<void> {
       amexFees: finalFields.amexFees,
       effectiveRate,
       processorDetected: processorName,
+      ...(derivedMonth ? { statementMonth: derivedMonth } : {}),
     });
 
     // Step 3.5: No-data detection — if no lines extracted and no volume/fees found

@@ -1,4 +1,4 @@
-import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
+import { Document, Page, Text, View, Image, StyleSheet } from "@react-pdf/renderer";
 
 type FindingRow = {
   label: string;
@@ -100,30 +100,10 @@ const styles = StyleSheet.create({
   logoBlock: {
     width: 130,
   },
-  logoBox: {
-    backgroundColor: C.brandPurple,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
+  logoImage: {
+    width: 70,
+    height: 70,
     borderRadius: 6,
-    width: 86,
-  },
-  logoLine1: {
-    color: C.white,
-    fontSize: 14,
-    fontWeight: 700,
-    letterSpacing: -0.3,
-  },
-  logoLine2: {
-    color: C.brandYellow,
-    fontSize: 18,
-    fontWeight: 700,
-    letterSpacing: -0.5,
-    marginTop: -2,
-  },
-  logoTagline: {
-    fontSize: 7,
-    color: C.brandYellow,
-    marginTop: 2,
   },
   logoSubtitle: {
     fontSize: 7,
@@ -349,11 +329,7 @@ export default function AuditReportDocument({ data }: { data: AuditReportData })
         {/* ── Header ── */}
         <View style={styles.headerRow}>
           <View style={styles.logoBlock}>
-            <View style={styles.logoBox}>
-              <Text style={styles.logoLine1}>we</Text>
-              <Text style={styles.logoLine2}>Audit</Text>
-              <Text style={styles.logoTagline}>.com</Text>
-            </View>
+            <Image src="/weaudit-logo.png" style={styles.logoImage} />
             <Text style={styles.logoSubtitle}>Protecting merchants' profits</Text>
           </View>
 
