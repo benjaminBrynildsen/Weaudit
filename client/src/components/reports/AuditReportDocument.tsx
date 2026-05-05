@@ -277,12 +277,6 @@ const styles = StyleSheet.create({
   sc4: { width: "12%", textAlign: "center" },
   sc5: { width: "18%", textAlign: "right" },
 
-  /* ── Interchange table columns ── */
-  ic1: { width: "55%" },
-  ic2: { width: "20%", textAlign: "right" },
-  ic3: { width: "15%", textAlign: "right" },
-  ic4: { width: "10%", textAlign: "center" },
-
   /* ── Footer ── */
   footer: {
     position: "absolute",
@@ -387,27 +381,6 @@ function ServiceChargeRow({ row }: { row: ServiceChargeRow }) {
   );
 }
 
-function InterchangeBlock({ rows }: { rows: InterchangeRow[] }) {
-  return (
-    <View style={styles.miniTable}>
-      <View style={styles.miniHeader}>
-        <Text style={[styles.miniHeaderText, styles.ic1]}>Line Item</Text>
-        <Text style={[styles.miniHeaderText, styles.ic2]}>Volume</Text>
-        <Text style={[styles.miniHeaderText, styles.ic3]}>Rate</Text>
-        <Text style={[styles.miniHeaderText, styles.ic4]}>Pg</Text>
-      </View>
-      {rows.map((r, i) => (
-        <View key={`${r.label}-${i}`} style={styles.miniRow} wrap={false}>
-          <Text style={[styles.miniCell, styles.ic1, { fontSize: 8 }]}>{r.label}</Text>
-          <Text style={[styles.miniCell, styles.ic2]}>{r.volume}</Text>
-          <Text style={[styles.miniCell, styles.ic3]}>{r.rate}</Text>
-          <Text style={[styles.miniCell, styles.ic4]}>{r.page}</Text>
-        </View>
-      ))}
-    </View>
-  );
-}
-
 export default function AuditReportDocument({ data }: { data: AuditReportData }) {
   const merchantLine = buildMerchantId(data.merchant, data.mid, data.gatewayLevel);
   const scOvercharges = data.flags.serviceChargeOvercharges ?? 0;
@@ -417,7 +390,6 @@ export default function AuditReportDocument({ data }: { data: AuditReportData })
     return (order[a.severity ?? "Low"] ?? 2) - (order[b.severity ?? "Low"] ?? 2);
   });
   const serviceCharges = data.findings.serviceCharges ?? [];
-  const interchange = data.findings.interchange ?? [];
 
   return (
     <Document>
@@ -511,15 +483,6 @@ export default function AuditReportDocument({ data }: { data: AuditReportData })
             {serviceCharges.map((r, i) => (
               <ServiceChargeRow key={`sc-${i}`} row={r} />
             ))}
-          </>
-        )}
-
-        {/* ── Interchange qualification lines ── */}
-        {interchange.length > 0 && (
-          <>
-            <Text style={styles.sectionHeading}>Interchange Qualification Lines</Text>
-            <View style={styles.sectionDivider} />
-            <InterchangeBlock rows={interchange} />
           </>
         )}
 
